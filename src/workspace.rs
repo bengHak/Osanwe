@@ -127,9 +127,19 @@ impl WorkspaceManager {
         head_sha: &str,
     ) -> anyhow::Result<()> {
         let range = format!("{base_sha}..{head_sha}");
-        self.git(integration, ["cherry-pick", &range])
-            .await?
-            .require_success("integrate worker checkpoint")?;
+        self.git(
+            integration,
+            [
+                "-c",
+                "user.name=Osanwe",
+                "-c",
+                "user.email=osanwe@localhost",
+                "cherry-pick",
+                &range,
+            ],
+        )
+        .await?
+        .require_success("integrate worker checkpoint")?;
         Ok(())
     }
 

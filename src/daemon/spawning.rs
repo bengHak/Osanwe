@@ -91,15 +91,17 @@ impl Daemon {
     pub(super) async fn spawn_checks(&self) -> anyhow::Result<()> {
         let (run_id, worktree, session, existing_pane) = {
             let mut run = self.run.lock().await;
+            let run_id = run.run_id.clone();
             let integration_worktree = run.integration_worktree.clone();
+            let session = run.zellij_session.clone();
             let checks = run.agents.entry("checks".into()).or_insert_with(|| {
-                AgentRecord::new("checks", AgentRole::Checks, integration_worktree)
+                AgentRecord::new("checks", AgentRole::Checks, integration_worktree.clone())
             });
             checks.state = AgentState::PaneCreating;
             (
-                run.run_id.clone(),
-                run.integration_worktree.clone(),
-                run.zellij_session.clone(),
+                run_id,
+                integration_worktree,
+                session,
                 checks.pane_id.clone(),
             )
         };

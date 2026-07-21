@@ -49,6 +49,7 @@ impl LaunchContext {
     }
 
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn from_environment(
         run_id: String,
         agent_id: String,

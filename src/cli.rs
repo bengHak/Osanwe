@@ -294,12 +294,12 @@ async fn resume_agent(run_id: &str, agent_id: &str) -> anyhow::Result<()> {
             title: format!("[R] Resume {agent_id}"),
             cwd: agent.worktree.clone(),
             command: CommandSpec::new(executable).args(vec![
-                "pane".into(),
-                "--run-id".into(),
-                run_id.into(),
-                "--agent-id".into(),
-                agent_id.into(),
-                "--resume".into(),
+                "pane",
+                "--run-id",
+                run_id,
+                "--agent-id",
+                agent_id,
+                "--resume",
             ]),
         })
         .await?;

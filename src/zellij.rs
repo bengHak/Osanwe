@@ -148,20 +148,14 @@ impl PaneHost for ZellijPaneHost {
 
     async fn paste(&self, pane_id: &str, text: &str) -> anyhow::Result<()> {
         self.runner
-            .run(
-                &self
-                    .action("paste")
-                    .args(["--pane-id".into(), pane_id.into(), text.into()]),
-            )
+            .run(&self.action("paste").args(["--pane-id", pane_id, text]))
             .await?
             .require_success("paste into pane")?;
         Ok(())
     }
 
     async fn send_keys(&self, pane_id: &str, keys: &[&str]) -> anyhow::Result<()> {
-        let mut command = self
-            .action("send-keys")
-            .args(["--pane-id".into(), pane_id.into()]);
+        let mut command = self.action("send-keys").args(["--pane-id", pane_id]);
         command
             .args
             .extend(keys.iter().map(|key| (*key).to_owned()));
@@ -182,11 +176,7 @@ impl PaneHost for ZellijPaneHost {
 
     async fn close(&self, pane_id: &str) -> anyhow::Result<()> {
         self.runner
-            .run(
-                &self
-                    .action("close-pane")
-                    .args(["--pane-id".into(), pane_id.into()]),
-            )
+            .run(&self.action("close-pane").args(["--pane-id", pane_id]))
             .await?
             .require_success("close pane")?;
         Ok(())
@@ -194,11 +184,11 @@ impl PaneHost for ZellijPaneHost {
 
     async fn rename(&self, pane_id: &str, title: &str) -> anyhow::Result<()> {
         self.runner
-            .run(&self.action("rename-pane").args([
-                "--pane-id".into(),
-                pane_id.into(),
-                title.into(),
-            ]))
+            .run(
+                &self
+                    .action("rename-pane")
+                    .args(["--pane-id", pane_id, title]),
+            )
             .await?
             .require_success("rename pane")?;
         Ok(())
@@ -216,11 +206,11 @@ impl PaneHost for ZellijPaneHost {
     async fn snapshot(&self, pane_id: &str) -> anyhow::Result<String> {
         let output = self
             .runner
-            .run(&self.action("dump-screen").args([
-                "--pane-id".into(),
-                pane_id.into(),
-                "--full".into(),
-            ]))
+            .run(
+                &self
+                    .action("dump-screen")
+                    .args(["--pane-id", pane_id, "--full"]),
+            )
             .await?
             .require_success("dump pane screen")?;
         Ok(output.stdout)

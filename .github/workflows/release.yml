@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.82.0
+          toolchain: stable
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
@@ -77,6 +77,7 @@ jobs:
           sha256sum osanwe-*.tar.gz > SHA256SUMS
           cat SHA256SUMS
       - name: Create or update version release
+        id: release
         shell: bash
         run: |
           set -euo pipefail
@@ -93,3 +94,14 @@ jobs:
           gh release upload "$tag" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Smoke-test private curl installation
+        shell: bash
+        env:
+          OSANWE_GITHUB_TOKEN: ${{ github.token }}
+          OSANWE_INSTALL_DIR: ${{ runner.temp }}/osanwe-bin
+          OSANWE_VERSION: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          sh install.sh
+          "$OSANWE_INSTALL_DIR/osanwe" --version

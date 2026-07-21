@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.82.0
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build release binary
+        run: cargo build --release --target "${{ matrix.target }}"
+      - name: Package release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='${{ matrix.target }}'
+          package="osanwe-$target"
+          stage="$RUNNER_TEMP/$package"
+          mkdir -p "$stage" dist
+          cp "target/$target/release/osanwe" "$stage/osanwe"
+          cp README.md LICENSE "$stage/"
+          tar -czf "dist/$package.tar.gz" -C "$stage" osanwe README.md LICENSE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Build checksum manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          count=$(find . -maxdepth 1 -type f -name 'osanwe-*.tar.gz' | wc -l)
+          test "$count" -eq 4
+          sha256sum osanwe-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create or update version release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
+          test -n "$version"
+          tag="v$version"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Osanwe $tag" \
+              --generate-notes
+          fi
+          gh release upload "$tag" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber

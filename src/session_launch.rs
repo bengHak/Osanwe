@@ -1,7 +1,7 @@
 //! Build native interactive launch specs and start Zellij multi-pane sessions.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -72,6 +72,25 @@ pub fn interactive_command(
     role: &str,
     choice: &RoleChoice,
 ) -> anyhow::Result<CommandSpec> {
+    let grok_sessions = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join(".grok/sessions"));
+    interactive_command_with_grok_sessions(
+        project_root,
+        osanwe,
+        role,
+        choice,
+        grok_sessions.as_deref(),
+    )
+}
+
+fn interactive_command_with_grok_sessions(
+    project_root: &Path,
+    osanwe: &Path,
+    role: &str,
+    choice: &RoleChoice,
+    grok_sessions: Option<&Path>,
+) -> anyhow::Result<CommandSpec> {
     let project = path_text(project_root)?;
     let osanwe_text = path_text(osanwe)?;
     let mut command = match choice.client {
@@ -95,7 +114,7 @@ pub fn interactive_command(
             }
             // First launch: --session-id (new conversation only).
             // Relaunch: --resume <same id> so Grok does not reject an existing session.
-            match role_session_binding(osanwe, role)? {
+            match role_session_binding(osanwe, role, grok_sessions)? {
                 GrokSessionBinding::New(session_id) => {
                     c = c.args(["--session-id", &session_id]);
                 }
@@ -124,12 +143,16 @@ enum GrokSessionBinding {
     Resume(String),
 }
 
-/// Persist a per-role Grok session UUID. Existing markers resume; missing ones mint a new id.
-fn role_session_binding(osanwe: &Path, role: &str) -> anyhow::Result<GrokSessionBinding> {
+/// Persist a per-role Grok session UUID. Valid markers resume; stale or missing ones mint a new id.
+fn role_session_binding(
+    osanwe: &Path,
+    role: &str,
+    grok_sessions: Option<&Path>,
+) -> anyhow::Result<GrokSessionBinding> {
     let marker = osanwe.join("sessions").join(format!("{role}.session-id"));
     if let Ok(existing) = fs::read_to_string(&marker) {
         let trimmed = existing.trim();
-        if !trimmed.is_empty() {
+        if !trimmed.is_empty() && grok_session_exists(grok_sessions, trimmed) {
             return Ok(GrokSessionBinding::Resume(trimmed.to_owned()));
         }
     }
@@ -138,6 +161,17 @@ fn role_session_binding(osanwe: &Path, role: &str) -> anyhow::Result<GrokSession
         .with_context(|| format!("create {}", osanwe.join("sessions").display()))?;
     fs::write(&marker, &id).with_context(|| format!("write {}", marker.display()))?;
     Ok(GrokSessionBinding::New(id))
+}
+
+fn grok_session_exists(sessions: Option<&Path>, session_id: &str) -> bool {
+    // ponytail: scan project dirs; add an index only if session counts make this measurable.
+    sessions
+        .and_then(|root| fs::read_dir(root).ok())
+        .is_some_and(|projects| {
+            projects
+                .filter_map(Result::ok)
+                .any(|project| project.path().join(session_id).is_dir())
+        })
 }
 
 fn bootstrap_for_role(osanwe: &Path, role: &str) -> anyhow::Result<String> {
@@ -612,14 +646,58 @@ mod tests {
     }
 
     #[test]
+    fn grok_stale_session_marker_starts_a_new_session() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let osanwe = osanwe_dir(root);
+        let grok_sessions = root.join("grok-sessions");
+        fs::create_dir_all(osanwe.join("sessions")).unwrap();
+        fs::create_dir_all(&grok_sessions).unwrap();
+        let stale = "76ea9f12-2bcb-4e4a-b5b2-27cfccac95dd";
+        fs::write(osanwe.join("sessions/worker.session-id"), stale).unwrap();
+        let choice = RoleChoice::new(ClientKind::Grok, "grok-4.5");
+
+        let command = interactive_command_with_grok_sessions(
+            root,
+            &osanwe,
+            "worker",
+            &choice,
+            Some(&grok_sessions),
+        )
+        .unwrap();
+
+        assert!(!command.args.iter().any(|arg| arg == "--resume"));
+        let replacement = command
+            .args
+            .windows(2)
+            .find(|args| args[0] == "--session-id")
+            .map(|args| args[1].as_str())
+            .expect("new session id");
+        assert_ne!(replacement, stale);
+        assert_eq!(
+            fs::read_to_string(osanwe.join("sessions/worker.session-id")).unwrap(),
+            replacement
+        );
+    }
+
+    #[test]
     fn grok_first_launch_uses_session_id_relaunch_uses_resume() {
         let dir = tempdir().unwrap();
         let root = dir.path();
         let osanwe = osanwe_dir(root);
+        let grok_sessions = root.join("grok-sessions");
         fs::create_dir_all(osanwe.join("sessions")).unwrap();
+        fs::create_dir_all(&grok_sessions).unwrap();
         let choice = RoleChoice::new(ClientKind::Grok, "grok-4.5");
 
-        let first = interactive_command(root, &osanwe, "worker", &choice).unwrap();
+        let first = interactive_command_with_grok_sessions(
+            root,
+            &osanwe,
+            "worker",
+            &choice,
+            Some(&grok_sessions),
+        )
+        .unwrap();
         assert!(
             first.args.windows(2).any(|w| w[0] == "--session-id"),
             "first launch should mint --session-id: {:?}",
@@ -640,8 +718,16 @@ mod tests {
             osanwe.join("sessions/worker.session-id").is_file(),
             "marker should be persisted"
         );
+        fs::create_dir_all(grok_sessions.join("project").join(&session_id)).unwrap();
 
-        let second = interactive_command(root, &osanwe, "worker", &choice).unwrap();
+        let second = interactive_command_with_grok_sessions(
+            root,
+            &osanwe,
+            "worker",
+            &choice,
+            Some(&grok_sessions),
+        )
+        .unwrap();
         assert!(
             second
                 .args

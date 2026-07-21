@@ -212,6 +212,39 @@ main() {
     *:"$INSTALL_DIR":*) ;;
     *) printf 'Add %s to PATH to run osanwe from any directory.\n' "$INSTALL_DIR" ;;
   esac
+
+  print_next_steps
+}
+
+print_next_steps() {
+  cat <<'EOF'
+
+Next steps — Osanwe needs these tools on your PATH (not installed by this script):
+
+  1. Zellij 0.44+   multi-pane session host (required to launch)
+  2. Codex CLI      interactive agent client (authenticate after install)
+  3. Grok Build     interactive agent client (authenticate after install)
+  4. Git            project root detection
+
+Install examples:
+
+  # macOS (Homebrew)
+  brew install zellij git
+  # Codex: https://github.com/openai/codex  (or your usual Codex install)
+  # Grok Build: https://x.ai/cli
+
+  # Linux — Zellij (pick one)
+  #   cargo install --locked zellij
+  #   or download a release from https://github.com/zellij-org/zellij/releases
+  # Ensure version is 0.44 or newer (pane-ID automation).
+
+Verify:
+
+  export PATH="$HOME/.local/bin:$PATH"   # if needed
+  osanwe doctor
+  osanwe                           # onboard + launch from a git project
+
+EOF
 }
 
 main "$@"

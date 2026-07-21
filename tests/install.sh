@@ -93,13 +93,18 @@ OSANWE_INSTALL_DIR="$TMP_ROOT/home/bin" \
 OSANWE_GITHUB_TOKEN=test-token \
 OSANWE_TEST_CURL_LOG="$CURL_LOG" \
 OSANWE_TEST_FIXTURE="$TMP_ROOT/fixture" \
-sh "$ROOT/install.sh"
+sh "$ROOT/install.sh" >"$TMP_ROOT/install.out" 2>"$TMP_ROOT/install.err"
 
 assert_file "$TMP_ROOT/home/bin/osanwe"
 OUTPUT=$($TMP_ROOT/home/bin/osanwe)
 [ "$OUTPUT" = "osanwe fixture" ] || fail "installed binary did not execute"
 HEADERS=$(cat "$CURL_LOG")
 assert_contains "$HEADERS" "Authorization: Bearer test-token"
+INSTALL_OUT=$(cat "$TMP_ROOT/install.out")
+assert_contains "$INSTALL_OUT" "Installed Osanwe"
+assert_contains "$INSTALL_OUT" "Next steps"
+assert_contains "$INSTALL_OUT" "Zellij 0.44+"
+assert_contains "$INSTALL_OUT" "osanwe doctor"
 
 if OSANWE_OS=plan9 OSANWE_ARCH=x86_64 sh "$ROOT/install.sh" --print-target >"$TMP_ROOT/unsupported.out" 2>"$TMP_ROOT/unsupported.err"; then
   fail "unsupported OS unexpectedly succeeded"

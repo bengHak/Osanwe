@@ -7,6 +7,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::process::{CommandRunner, CommandSpec};
 
+/// Expand a [`CommandSpec`] into the program argv Zellij should exec after `--`.
+/// When `env` is non-empty, wrap as `env KEY=VAL… program args…` so variables reach the pane.
+#[must_use]
+pub fn pane_program_and_args(spec: &CommandSpec) -> (String, Vec<String>) {
+    if spec.env.is_empty() {
+        return (spec.program.clone(), spec.args.clone());
+    }
+    let mut args = Vec::with_capacity(spec.env.len() + 1 + spec.args.len());
+    for (key, value) in &spec.env {
+        args.push(format!("{key}={value}"));
+    }
+    args.push(spec.program.clone());
+    args.extend(spec.args.iter().cloned());
+    ("env".into(), args)
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct PaneId(String);
 
@@ -128,15 +144,18 @@ impl PaneHost for ZellijPaneHost {
             .to_str()
             .context("pane cwd is not valid UTF-8")?
             .to_owned();
+        // Zellij new-pane does not accept env maps; wrap with `env` so CommandSpec.env
+        // (OSANWE_*) reaches the provider process.
+        let (program, mut program_args) = pane_program_and_args(&spec.command);
         let mut command = self.action("new-pane").args([
             "--name".into(),
             spec.title,
             "--cwd".into(),
             cwd,
             "--".into(),
-            spec.command.program,
+            program,
         ]);
-        command.args.extend(spec.command.args);
+        command.args.append(&mut program_args);
         let output = self.runner.run(&command).await?;
         let output = output.require_success("create Zellij pane")?;
         let pane_id = output.stdout.trim();

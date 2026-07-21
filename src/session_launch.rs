@@ -1,0 +1,532 @@
+//! Build native interactive launch specs and start Zellij multi-pane sessions.
+
+use std::fs;
+use std::path::Path;
+use std::process::Stdio;
+use std::sync::Arc;
+
+use anyhow::{bail, Context};
+use serde::{Deserialize, Serialize};
+use tokio::process::Command;
+use uuid::Uuid;
+
+use crate::process::{CommandSpec, TokioCommandRunner};
+use crate::project::{
+    load_config, osanwe_dir, scaffold, ClientKind, ProjectConfig, RoleChoice,
+};
+use crate::zellij::{PaneHost, PaneSpec, ZellijPaneHost};
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RoleLaunchSpec {
+    pub role: String,
+    pub client: ClientKind,
+    pub model: String,
+    pub command: CommandSpec,
+    pub bootstrap: String,
+    pub title: String,
+}
+
+/// Build interactive launch specs for every active role from project config.
+pub fn build_role_launch_specs(
+    project_root: &Path,
+    config: &ProjectConfig,
+) -> anyhow::Result<Vec<RoleLaunchSpec>> {
+    let osanwe = osanwe_dir(project_root);
+    let mut specs = Vec::new();
+    for (role, choice) in config.active_roles() {
+        specs.push(build_one_spec(project_root, &osanwe, role, choice)?);
+    }
+    Ok(specs)
+}
+
+fn build_one_spec(
+    project_root: &Path,
+    osanwe: &Path,
+    role: &str,
+    choice: &RoleChoice,
+) -> anyhow::Result<RoleLaunchSpec> {
+    let command = interactive_command(project_root, osanwe, role, choice)?;
+    let bootstrap = bootstrap_for_role(osanwe, role)?;
+    let title = format!(
+        "[{}] {} ({})",
+        role_label(role),
+        choice.client,
+        if choice.model.is_empty() {
+            "default"
+        } else {
+            choice.model.as_str()
+        }
+    );
+    Ok(RoleLaunchSpec {
+        role: role.to_owned(),
+        client: choice.client,
+        model: choice.model.clone(),
+        command,
+        bootstrap,
+        title,
+    })
+}
+
+/// Native interactive command for a role, cwd at project root, env pointing at `.osanwe`.
+pub fn interactive_command(
+    project_root: &Path,
+    osanwe: &Path,
+    role: &str,
+    choice: &RoleChoice,
+) -> anyhow::Result<CommandSpec> {
+    let project = path_text(project_root)?;
+    let osanwe_text = path_text(osanwe)?;
+    let mut command = match choice.client {
+        ClientKind::Codex => {
+            let mut c = CommandSpec::new("codex").args(["-C", &project]);
+            if !choice.model.trim().is_empty() {
+                c = c.args(["-m", choice.model.trim()]);
+            }
+            // Orchestrator and worker need write access; planner/verifier stay read-only by default.
+            let sandbox = match role {
+                "planner" | "verifier" => "read-only",
+                _ => "workspace-write",
+            };
+            c = c.args(["-s", sandbox]);
+            c
+        }
+        ClientKind::Grok => {
+            let mut c = CommandSpec::new("grok").args(["--cwd", &project]);
+            if !choice.model.trim().is_empty() {
+                c = c.args(["-m", choice.model.trim()]);
+            }
+            // First launch: --session-id (new conversation only).
+            // Relaunch: --resume <same id> so Grok does not reject an existing session.
+            match role_session_binding(osanwe, role)? {
+                GrokSessionBinding::New(session_id) => {
+                    c = c.args(["--session-id", &session_id]);
+                }
+                GrokSessionBinding::Resume(session_id) => {
+                    c = c.args(["--resume", &session_id]);
+                }
+            }
+            c
+        }
+    };
+
+    command = command
+        .cwd(project_root)
+        .env("OSANWE_PROJECT", project)
+        .env("OSANWE_DIR", osanwe_text)
+        .env("OSANWE_ROLE", role)
+        .env("OSANWE_CLIENT", choice.client.as_str())
+        .env("OSANWE_MODEL", choice.model.clone());
+
+    Ok(command)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum GrokSessionBinding {
+    New(String),
+    Resume(String),
+}
+
+/// Persist a per-role Grok session UUID. Existing markers resume; missing ones mint a new id.
+fn role_session_binding(osanwe: &Path, role: &str) -> anyhow::Result<GrokSessionBinding> {
+    let marker = osanwe.join("sessions").join(format!("{role}.session-id"));
+    if let Ok(existing) = fs::read_to_string(&marker) {
+        let trimmed = existing.trim();
+        if !trimmed.is_empty() {
+            return Ok(GrokSessionBinding::Resume(trimmed.to_owned()));
+        }
+    }
+    let id = Uuid::new_v4().to_string();
+    fs::create_dir_all(osanwe.join("sessions"))
+        .with_context(|| format!("create {}", osanwe.join("sessions").display()))?;
+    fs::write(&marker, &id).with_context(|| format!("write {}", marker.display()))?;
+    Ok(GrokSessionBinding::New(id))
+}
+
+fn bootstrap_for_role(osanwe: &Path, role: &str) -> anyhow::Result<String> {
+    let path = osanwe.join("prompts").join(format!("{role}.md"));
+    if path.is_file() {
+        let body = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+        return Ok(format!(
+            "Osanwe role: {role}. Shared file bus is at `.osanwe/` (absolute: {}).\n\n{body}",
+            osanwe.display()
+        ));
+    }
+    Ok(format!(
+        "You are the Osanwe {role}. Coordinate using the project `.osanwe/` file bus at {}.",
+        osanwe.display()
+    ))
+}
+
+fn role_label(role: &str) -> &'static str {
+    match role {
+        "orchestrator" => "O",
+        "planner" => "P",
+        "worker" => "W",
+        "verifier" => "V",
+        _ => "?",
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SessionRecord {
+    pub project_root: String,
+    pub zellij_session: String,
+    pub roles: Vec<String>,
+    pub started_at_unix: u64,
+}
+
+/// Ensure scaffold, write session record, start Zellij panes, optionally attach.
+pub async fn launch_project_session(
+    project_root: &Path,
+    no_attach: bool,
+) -> anyhow::Result<()> {
+    require_unix()?;
+    scaffold(project_root)?;
+    let config = load_config(project_root)?;
+    let specs = build_role_launch_specs(project_root, &config)?;
+    if specs.is_empty() {
+        bail!("no roles configured to launch");
+    }
+
+    write_session_record(project_root, &config, &specs)?;
+    write_board_status(project_root, &config, &specs)?;
+
+    let runner = Arc::new(TokioCommandRunner);
+    let host = ZellijPaneHost::new(config.zellij_session.clone(), runner);
+    host.create_session().await?;
+
+    let initial_panes = host.list_panes().await.unwrap_or_default();
+    let executable = path_text(&std::env::current_exe()?)?;
+
+    let mut created = Vec::new();
+    for spec in &specs {
+        let pane_id = host
+            .create_pane(PaneSpec {
+                title: spec.title.clone(),
+                cwd: project_root.to_path_buf(),
+                command: spec.command.clone(),
+            })
+            .await?;
+        // Give the provider a moment to start, then inject bootstrap via paste.
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        if !spec.bootstrap.is_empty() {
+            let _ = host.paste(pane_id.as_str(), &spec.bootstrap).await;
+            let _ = host.send_keys(pane_id.as_str(), &["Enter"]).await;
+        }
+        created.push(pane_id);
+    }
+
+    // Board pane: lightweight Osanwe status viewer.
+    let board_pane = host
+        .create_pane(PaneSpec {
+            title: "[Board] Osanwe".into(),
+            cwd: project_root.to_path_buf(),
+            command: CommandSpec::new(executable).args([
+                "board".into(),
+                "--repo".into(),
+                path_text(project_root)?,
+            ]),
+        })
+        .await?;
+    created.push(board_pane);
+
+    for pane in initial_panes.into_iter().filter(|p| !p.is_plugin) {
+        let id = pane.pane_id();
+        if !created.iter().any(|c| c.as_str() == id.as_str()) {
+            host.close(id.as_str()).await.ok();
+        }
+    }
+
+    println!("Osanwe session: {}", config.zellij_session);
+    println!("Project: {}", project_root.display());
+    println!("File bus: {}", osanwe_dir(project_root).display());
+    for spec in &specs {
+        println!(
+            "  {} → {} {}",
+            spec.role,
+            spec.client,
+            if spec.model.is_empty() {
+                "(default model)"
+            } else {
+                spec.model.as_str()
+            }
+        );
+    }
+
+    if no_attach {
+        println!("Attach with: osanwe attach");
+        Ok(())
+    } else {
+        attach_terminal(&config.zellij_session).await
+    }
+}
+
+pub async fn attach_project_session(project_root: &Path) -> anyhow::Result<()> {
+    require_unix()?;
+    let config = load_config(project_root)?;
+    attach_terminal(&config.zellij_session).await
+}
+
+pub async fn stop_project_session(project_root: &Path) -> anyhow::Result<()> {
+    require_unix()?;
+    let config = load_config(project_root)?;
+    let status = Command::new("zellij")
+        .args(["kill-session", &config.zellij_session])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .status()
+        .await;
+    match status {
+        Ok(s) if s.success() => {
+            println!("Stopped Zellij session {}", config.zellij_session);
+            Ok(())
+        }
+        Ok(s) => {
+            // Session may already be gone.
+            println!(
+                "zellij kill-session exited {:?}; session {} may already be stopped",
+                s.code(),
+                config.zellij_session
+            );
+            Ok(())
+        }
+        Err(error) => Err(error).context("run zellij kill-session"),
+    }
+}
+
+fn write_session_record(
+    project_root: &Path,
+    config: &ProjectConfig,
+    specs: &[RoleLaunchSpec],
+) -> anyhow::Result<()> {
+    let record = SessionRecord {
+        project_root: path_text(project_root)?,
+        zellij_session: config.zellij_session.clone(),
+        roles: specs.iter().map(|s| s.role.clone()).collect(),
+        started_at_unix: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    };
+    let path = osanwe_dir(project_root).join("sessions/current.json");
+    fs::create_dir_all(path.parent().unwrap())?;
+    fs::write(&path, serde_json::to_vec_pretty(&record)?)
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn write_board_status(
+    project_root: &Path,
+    config: &ProjectConfig,
+    specs: &[RoleLaunchSpec],
+) -> anyhow::Result<()> {
+    let mut body = String::from("# Osanwe board\n\n");
+    body.push_str(&format!("Session: `{}`\n\n", config.zellij_session));
+    body.push_str("| Role | Client | Model |\n| --- | --- | --- |\n");
+    for spec in specs {
+        body.push_str(&format!(
+            "| {} | {} | {} |\n",
+            spec.role,
+            spec.client,
+            if spec.model.is_empty() {
+                "default"
+            } else {
+                &spec.model
+            }
+        ));
+    }
+    body.push_str("\nPut todos in `.osanwe/todos/`, plans in `.osanwe/plans/`.\n");
+    let path = osanwe_dir(project_root).join("board/status.md");
+    fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+pub async fn attach_terminal(session: &str) -> anyhow::Result<()> {
+    let status = Command::new("zellij")
+        .args(["attach", session])
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .await
+        .context("attach to Zellij session")?;
+    if status.success() {
+        Ok(())
+    } else {
+        bail!("Zellij attach exited with status {:?}", status.code())
+    }
+}
+
+fn require_unix() -> anyhow::Result<()> {
+    if cfg!(unix) {
+        Ok(())
+    } else {
+        bail!("Osanwe currently requires Linux, macOS, or WSL")
+    }
+}
+
+fn path_text(path: &Path) -> anyhow::Result<String> {
+    path.to_str()
+        .map(ToOwned::to_owned)
+        .with_context(|| format!("path is not valid UTF-8: {}", path.display()))
+}
+
+/// Print board status (used in the board pane).
+pub fn run_board(project_root: &Path) -> anyhow::Result<()> {
+    let status_path = osanwe_dir(project_root).join("board/status.md");
+    let todos = osanwe_dir(project_root).join("todos");
+    println!("Osanwe board — project {}", project_root.display());
+    println!("File bus: {}", osanwe_dir(project_root).display());
+    println!("---");
+    if status_path.is_file() {
+        print!("{}", fs::read_to_string(&status_path)?);
+    }
+    println!("---");
+    println!("Todos:");
+    if todos.is_dir() {
+        let mut entries: Vec<_> = fs::read_dir(&todos)?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect();
+        entries.sort();
+        if entries.is_empty() {
+            println!("  (none yet — add files under .osanwe/todos/)");
+        } else {
+            for entry in entries {
+                println!("  - {}", entry.file_name().unwrap_or_default().to_string_lossy());
+            }
+        }
+    }
+    println!();
+    println!("Press Ctrl-C to close this board pane.");
+    // Keep the pane open until the user closes it.
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(3600));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::project::{scaffold_with_config, ProjectConfig, RoleChoice};
+    use tempfile::tempdir;
+
+    #[test]
+    fn launch_specs_reference_project_osanwe_and_models() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let mut config = ProjectConfig::defaults_for_repo(root);
+        config.roles.orchestrator = RoleChoice::new(ClientKind::Grok, "grok-fast");
+        config.roles.planner = RoleChoice::new(ClientKind::Codex, "o3");
+        config.roles.worker = RoleChoice::new(ClientKind::Grok, "grok-4.5");
+        config.enable_verifier = true;
+        config.roles.verifier = Some(RoleChoice::new(ClientKind::Codex, "o4-mini"));
+        scaffold_with_config(root, &config).unwrap();
+
+        let specs = build_role_launch_specs(root, &config).unwrap();
+        assert_eq!(specs.len(), 4);
+
+        let orch = specs.iter().find(|s| s.role == "orchestrator").unwrap();
+        assert_eq!(orch.client, ClientKind::Grok);
+        assert_eq!(orch.command.program, "grok");
+        assert!(orch.command.args.iter().any(|a| a == "--cwd"));
+        assert!(orch.command.args.iter().any(|a| a == "grok-fast"));
+        assert_eq!(
+            orch.command.env.get("OSANWE_DIR").map(String::as_str),
+            Some(osanwe_dir(root).to_str().unwrap())
+        );
+        assert!(orch.bootstrap.contains(".osanwe"));
+
+        let planner = specs.iter().find(|s| s.role == "planner").unwrap();
+        assert_eq!(planner.command.program, "codex");
+        assert!(planner.command.args.iter().any(|a| a == "-C"));
+        assert!(planner.command.args.iter().any(|a| a == "o3"));
+        assert!(planner.command.args.iter().any(|a| a == "read-only"));
+        assert_eq!(
+            planner.command.env.get("OSANWE_ROLE").map(String::as_str),
+            Some("planner")
+        );
+
+        let worker = specs.iter().find(|s| s.role == "worker").unwrap();
+        assert_eq!(worker.command.program, "grok");
+        assert!(worker.command.args.iter().any(|a| a == "grok-4.5"));
+        assert_eq!(
+            worker.command.cwd.as_deref(),
+            Some(root)
+        );
+    }
+
+    #[test]
+    fn launch_specs_skip_verifier_when_disabled() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let mut config = ProjectConfig::defaults_for_repo(root);
+        config.enable_verifier = false;
+        config.roles.verifier = None;
+        scaffold_with_config(root, &config).unwrap();
+        let specs = build_role_launch_specs(root, &config).unwrap();
+        assert_eq!(specs.len(), 3);
+        assert!(specs.iter().all(|s| s.role != "verifier"));
+    }
+
+    #[test]
+    fn empty_model_omits_model_flag() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let choice = RoleChoice::new(ClientKind::Codex, "");
+        let osanwe = osanwe_dir(root);
+        fs::create_dir_all(&osanwe).unwrap();
+        let cmd = interactive_command(root, &osanwe, "worker", &choice).unwrap();
+        assert!(!cmd.args.iter().any(|a| a == "-m"));
+        assert_eq!(cmd.env.get("OSANWE_MODEL").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn grok_first_launch_uses_session_id_relaunch_uses_resume() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let osanwe = osanwe_dir(root);
+        fs::create_dir_all(osanwe.join("sessions")).unwrap();
+        let choice = RoleChoice::new(ClientKind::Grok, "grok-4.5");
+
+        let first = interactive_command(root, &osanwe, "worker", &choice).unwrap();
+        assert!(
+            first.args.windows(2).any(|w| w[0] == "--session-id"),
+            "first launch should mint --session-id: {:?}",
+            first.args
+        );
+        assert!(
+            !first.args.iter().any(|a| a == "--resume"),
+            "first launch must not --resume: {:?}",
+            first.args
+        );
+        let session_id = first
+            .args
+            .windows(2)
+            .find(|w| w[0] == "--session-id")
+            .map(|w| w[1].clone())
+            .expect("session id");
+        assert!(
+            osanwe.join("sessions/worker.session-id").is_file(),
+            "marker should be persisted"
+        );
+
+        let second = interactive_command(root, &osanwe, "worker", &choice).unwrap();
+        assert!(
+            second
+                .args
+                .windows(2)
+                .any(|w| w == ["--resume".to_owned(), session_id.clone()]
+                    || (w[0] == "--resume" && w[1] == session_id)),
+            "relaunch should --resume same id {session_id}: {:?}",
+            second.args
+        );
+        assert!(
+            !second.args.iter().any(|a| a == "--session-id"),
+            "relaunch must not re-pass --session-id: {:?}",
+            second.args
+        );
+    }
+}

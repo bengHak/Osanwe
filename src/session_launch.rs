@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use uuid::Uuid;
 
-use crate::process::{CommandSpec, TokioCommandRunner};
+use crate::process::{CommandRunner, CommandSpec, TokioCommandRunner};
 use crate::project::{load_config, osanwe_dir, scaffold, ClientKind, ProjectConfig, RoleChoice};
 use crate::zellij::{PaneHost, PaneSpec, ZellijPaneHost};
 
@@ -247,6 +247,7 @@ pub async fn launch_project_session(project_root: &Path, no_attach: bool) -> any
             }
         );
     }
+    println!("Quit all and delete session: Ctrl+Q");
 
     if no_attach {
         println!("Attach with: osanwe attach");
@@ -347,10 +348,37 @@ pub async fn attach_terminal(session: &str) -> anyhow::Result<()> {
         .await
         .context("attach to Zellij session")?;
     if status.success() {
-        Ok(())
+        cleanup_session_after_attach(session, &TokioCommandRunner).await
     } else {
         bail!("Zellij attach exited with status {:?}", status.code())
     }
+}
+
+async fn cleanup_session_after_attach(
+    session: &str,
+    runner: &dyn CommandRunner,
+) -> anyhow::Result<()> {
+    let active = runner
+        .run(&CommandSpec::new("zellij").args([
+            "--session",
+            session,
+            "action",
+            "list-panes",
+            "--json",
+        ]))
+        .await?;
+    if active.status == 0 {
+        return Ok(());
+    }
+
+    let deleted = runner
+        .run(&CommandSpec::new("zellij").args(["delete-session", session]))
+        .await?;
+    if deleted.status == 0 || deleted.stderr.to_ascii_lowercase().contains("not found") {
+        return Ok(());
+    }
+    deleted.require_success("delete exited Zellij session")?;
+    Ok(())
 }
 
 fn require_unix() -> anyhow::Result<()> {
@@ -407,9 +435,114 @@ pub fn run_board(project_root: &Path) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+
     use super::*;
+    use crate::process::{CommandOutput, CommandRunner};
     use crate::project::{scaffold_with_config, ProjectConfig, RoleChoice};
+    use async_trait::async_trait;
     use tempfile::tempdir;
+
+    struct CleanupRunner {
+        outputs: Mutex<VecDeque<CommandOutput>>,
+        commands: Mutex<Vec<CommandSpec>>,
+    }
+
+    impl CleanupRunner {
+        fn new(outputs: Vec<CommandOutput>) -> Self {
+            Self {
+                outputs: Mutex::new(outputs.into()),
+                commands: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn commands(&self) -> Vec<CommandSpec> {
+            self.commands.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl CommandRunner for CleanupRunner {
+        async fn run(&self, spec: &CommandSpec) -> anyhow::Result<CommandOutput> {
+            self.commands.lock().unwrap().push(spec.clone());
+            Ok(self.outputs.lock().unwrap().pop_front().unwrap())
+        }
+    }
+
+    #[tokio::test]
+    async fn cleanup_preserves_an_active_detached_session() {
+        let runner = CleanupRunner::new(vec![CommandOutput::success("[]")]);
+
+        cleanup_session_after_attach("osanwe-test", &runner)
+            .await
+            .unwrap();
+
+        assert_eq!(runner.commands().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cleanup_deletes_an_exited_session() {
+        let runner = CleanupRunner::new(vec![
+            CommandOutput {
+                status: 1,
+                stdout: String::new(),
+                stderr: "inactive".into(),
+            },
+            CommandOutput::success("deleted"),
+        ]);
+
+        cleanup_session_after_attach("osanwe-test", &runner)
+            .await
+            .unwrap();
+
+        assert!(runner
+            .commands()
+            .iter()
+            .any(|command| command.args == ["delete-session", "osanwe-test"]));
+    }
+
+    #[tokio::test]
+    async fn cleanup_accepts_an_already_absent_session() {
+        let runner = CleanupRunner::new(vec![
+            CommandOutput {
+                status: 1,
+                stdout: String::new(),
+                stderr: "inactive".into(),
+            },
+            CommandOutput {
+                status: 2,
+                stdout: String::new(),
+                stderr: "Session not found".into(),
+            },
+        ]);
+
+        cleanup_session_after_attach("osanwe-test", &runner)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cleanup_reports_an_unexpected_delete_failure() {
+        let runner = CleanupRunner::new(vec![
+            CommandOutput {
+                status: 1,
+                stdout: String::new(),
+                stderr: "inactive".into(),
+            },
+            CommandOutput {
+                status: 1,
+                stdout: String::new(),
+                stderr: "permission denied".into(),
+            },
+        ]);
+
+        let error = cleanup_session_after_attach("osanwe-test", &runner)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("permission denied"));
+    }
 
     #[test]
     fn launch_specs_reference_project_osanwe_and_models() {

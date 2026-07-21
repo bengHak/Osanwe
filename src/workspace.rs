@@ -57,7 +57,10 @@ impl WorkspaceManager {
     ) -> anyhow::Result<()> {
         validate_branch(branch)?;
         if destination.exists() {
-            bail!("worktree destination already exists: {}", destination.display())
+            bail!(
+                "worktree destination already exists: {}",
+                destination.display()
+            )
         }
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent)?;
@@ -133,9 +136,7 @@ impl WorkspaceManager {
     pub async fn abort_integration(&self, integration: &Path) -> anyhow::Result<()> {
         let output = self.git(integration, ["cherry-pick", "--abort"]).await?;
         if output.status != 0 && !output.stderr.contains("no cherry-pick") {
-            return output
-                .require_success("abort cherry-pick")
-                .map(|_| ());
+            return output.require_success("abort cherry-pick").map(|_| ());
         }
         Ok(())
     }
@@ -173,11 +174,7 @@ impl WorkspaceManager {
             .stdout)
     }
 
-    pub async fn remove_worktree(
-        &self,
-        repository: &Path,
-        worktree: &Path,
-    ) -> anyhow::Result<()> {
+    pub async fn remove_worktree(&self, repository: &Path, worktree: &Path) -> anyhow::Result<()> {
         let worktree = path_text(worktree)?;
         self.git(repository, ["worktree", "remove", "--force", &worktree])
             .await?
@@ -281,12 +278,7 @@ mod tests {
             .await
             .unwrap();
         manager
-            .create_worktree(
-                &repo,
-                &worker,
-                "osanwe/test/worker-1",
-                &snapshot.base_sha,
-            )
+            .create_worktree(&repo, &worker, "osanwe/test/worker-1", &snapshot.base_sha)
             .await
             .unwrap();
 

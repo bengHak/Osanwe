@@ -60,7 +60,8 @@ impl RpcResponse {
         if let Some(error) = self.error {
             bail!("daemon error {}: {}", error.code, error.message)
         }
-        self.result.context("daemon response did not contain a result")
+        self.result
+            .context("daemon response did not contain a result")
     }
 }
 

@@ -13,7 +13,11 @@ use super::support::{plan_hash, require_param_agent, require_role, validate_plan
 use super::{Daemon, Identity};
 
 impl Daemon {
-    pub(super) async fn submit_plan(&self, identity: &Identity, params: &Value) -> anyhow::Result<Value> {
+    pub(super) async fn submit_plan(
+        &self,
+        identity: &Identity,
+        params: &Value,
+    ) -> anyhow::Result<Value> {
         let agent_id = require_role(identity, AgentRole::Planner)?;
         require_param_agent(params, &agent_id)?;
         let plan: PlanSpec = serde_json::from_value(
@@ -115,7 +119,8 @@ impl Daemon {
                 .integrate(&integration, &integration_base, &checkpoint)
                 .await
             {
-                self.block_run(format!("integration conflict: {error}")).await?;
+                self.block_run(format!("integration conflict: {error}"))
+                    .await?;
                 return Err(error);
             }
             {
@@ -127,7 +132,10 @@ impl Daemon {
                 drop(run);
                 self.store.save(&snapshot)?;
             }
-            let patch = self.workspace.diff_patch(&integration, &original_base).await?;
+            let patch = self
+                .workspace
+                .diff_patch(&integration, &original_base)
+                .await?;
             self.store.write_artifact(
                 &run_id,
                 Path::new("checkpoints/integration.patch"),
@@ -218,5 +226,4 @@ impl Daemon {
         }
         Ok(json!({"accepted": true, "status": self.run.lock().await.status}))
     }
-
 }

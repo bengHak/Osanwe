@@ -61,7 +61,11 @@ impl Daemon {
         Ok(json!({"accepted": true, "attention": true}))
     }
 
-    pub(super) async fn record_hook(&self, identity: &Identity, params: &Value) -> anyhow::Result<Value> {
+    pub(super) async fn record_hook(
+        &self,
+        identity: &Identity,
+        params: &Value,
+    ) -> anyhow::Result<Value> {
         let agent_id = identity_agent(identity)?;
         require_param_agent(params, &agent_id)?;
         let event_name = params
@@ -139,7 +143,6 @@ impl Daemon {
         Ok(json!({"recorded": true}))
     }
 
-
     pub(super) async fn register_pane(&self, params: &Value) -> anyhow::Result<Value> {
         let agent_id = params
             .get("agent_id")
@@ -164,7 +167,11 @@ impl Daemon {
         Ok(json!({"registered": true}))
     }
 
-    pub(super) async fn pane_started(&self, identity: &Identity, params: &Value) -> anyhow::Result<Value> {
+    pub(super) async fn pane_started(
+        &self,
+        identity: &Identity,
+        params: &Value,
+    ) -> anyhow::Result<Value> {
         let agent_id = identity_agent(identity)?;
         require_param_agent(params, &agent_id)?;
         self.apply_and_persist(
@@ -182,10 +189,17 @@ impl Daemon {
         Ok(json!({"recorded": true}))
     }
 
-    pub(super) async fn pane_exited(&self, identity: &Identity, params: &Value) -> anyhow::Result<Value> {
+    pub(super) async fn pane_exited(
+        &self,
+        identity: &Identity,
+        params: &Value,
+    ) -> anyhow::Result<Value> {
         let agent_id = identity_agent(identity)?;
         require_param_agent(params, &agent_id)?;
-        let success = params.get("success").and_then(Value::as_bool).unwrap_or(false);
+        let success = params
+            .get("success")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         self.apply_and_persist(
             Transition::AgentStateChanged {
                 agent_id: agent_id.clone(),

@@ -16,14 +16,16 @@ pub async fn run_checks(worktree: &Path, checks: &[CheckSpec]) -> Vec<CheckResul
     };
     let mut results = Vec::with_capacity(checks.len());
     for check in checks {
-        let result = run_check(worktree, &check).await.unwrap_or_else(|error| CheckResult {
-            id: check.id.clone(),
-            passed: false,
-            required: check.required,
-            exit_code: None,
-            duration_ms: 0,
-            summary: error.to_string(),
-        });
+        let result = run_check(worktree, &check)
+            .await
+            .unwrap_or_else(|error| CheckResult {
+                id: check.id.clone(),
+                passed: false,
+                required: check.required,
+                exit_code: None,
+                duration_ms: 0,
+                summary: error.to_string(),
+            });
         results.push(result);
     }
     results
@@ -42,7 +44,12 @@ pub async fn run_check(worktree: &Path, check: &CheckSpec) -> anyhow::Result<Che
         bail!("check cwd escapes the integration worktree")
     }
 
-    println!("\n==> [{}] {} {}", check.id, check.program, check.args.join(" "));
+    println!(
+        "\n==> [{}] {} {}",
+        check.id,
+        check.program,
+        check.args.join(" ")
+    );
     let started = Instant::now();
     let mut command = Command::new(&check.program);
     command
@@ -51,13 +58,10 @@ pub async fn run_check(worktree: &Path, check: &CheckSpec) -> anyhow::Result<Che
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    let status = timeout(
-        Duration::from_secs(check.timeout_seconds),
-        command.status(),
-    )
-    .await
-    .with_context(|| format!("check {} timed out", check.id))?
-    .with_context(|| format!("start check {}", check.id))?;
+    let status = timeout(Duration::from_secs(check.timeout_seconds), command.status())
+        .await
+        .with_context(|| format!("check {} timed out", check.id))?
+        .with_context(|| format!("start check {}", check.id))?;
     let duration_ms = started.elapsed().as_millis();
     let exit_code = status.code();
     Ok(CheckResult {

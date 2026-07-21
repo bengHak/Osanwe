@@ -112,8 +112,7 @@ impl Daemon {
             .create_pane(PaneSpec {
                 title: "[C] Deterministic Checks".into(),
                 cwd: worktree,
-                command: CommandSpec::new(executable)
-                    .args(["checks", "--run-id", &run_id]),
+                command: CommandSpec::new(executable).args(["checks", "--run-id", &run_id]),
             })
             .await?;
         self.apply_and_persist(
@@ -183,5 +182,4 @@ impl Daemon {
         .await?;
         Ok(())
     }
-
 }

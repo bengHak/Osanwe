@@ -47,7 +47,8 @@ impl App {
         }
         let current = isize::try_from(self.selected_agent).unwrap_or_default();
         let maximum = isize::try_from(count.saturating_sub(1)).unwrap_or_default();
-        self.selected_agent = usize::try_from((current + delta).clamp(0, maximum)).unwrap_or_default();
+        self.selected_agent =
+            usize::try_from((current + delta).clamp(0, maximum)).unwrap_or_default();
     }
 }
 
@@ -92,7 +93,9 @@ pub async fn run(store: RunStore, run_id: &str) -> anyhow::Result<()> {
                 KeyCode::Char('a') => {
                     if app.manifest.status == RunStatus::PlanReview {
                         match client.call("plan.approve", json!({})).await {
-                            Ok(_) => app.status_message = "plan approved; worker is starting".into(),
+                            Ok(_) => {
+                                app.status_message = "plan approved; worker is starting".into()
+                            }
                             Err(error) => app.status_message = format!("approval failed: {error}"),
                         }
                     } else {
@@ -112,7 +115,9 @@ pub async fn run(store: RunStore, run_id: &str) -> anyhow::Result<()> {
                             .call("pane.focus", json!({"agent_id": agent_id}))
                             .await
                         {
-                            Ok(_) => app.status_message = "pane focused; control belongs to user".into(),
+                            Ok(_) => {
+                                app.status_message = "pane focused; control belongs to user".into()
+                            }
                             Err(error) => app.status_message = format!("focus failed: {error}"),
                         }
                     }
@@ -126,10 +131,7 @@ pub async fn run(store: RunStore, run_id: &str) -> anyhow::Result<()> {
                             "user"
                         };
                         match client
-                            .call(
-                                "control.set",
-                                json!({"agent_id": agent_id, "owner": next}),
-                            )
+                            .call("control.set", json!({"agent_id": agent_id, "owner": next}))
                             .await
                         {
                             Ok(_) => app.status_message = format!("{agent_id} control: {next}"),
@@ -200,13 +202,7 @@ fn render_workflow(frame: &mut Frame<'_>, app: &App, area: Rect) {
         app.manifest
             .check_results
             .iter()
-            .map(|result| {
-                format!(
-                    "{} {}",
-                    if result.passed { "✓" } else { "✗" },
-                    result.id
-                )
-            })
+            .map(|result| format!("{} {}", if result.passed { "✓" } else { "✗" }, result.id))
             .collect::<Vec<_>>()
             .join("\n")
     };
@@ -234,7 +230,11 @@ fn render_agents(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .values()
         .enumerate()
         .map(|(index, agent)| {
-            let marker = if index == app.selected_agent { ">" } else { " " };
+            let marker = if index == app.selected_agent {
+                ">"
+            } else {
+                " "
+            };
             ListItem::new(Line::from(format!(
                 "{marker} {} {:?} {:?} control={:?}",
                 agent.id, agent.role, agent.state, agent.control_owner

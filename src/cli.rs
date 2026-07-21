@@ -22,7 +22,11 @@ use crate::workspace::WorkspaceManager;
 use crate::zellij::{PaneHost, PaneSpec, ZellijPaneHost};
 
 #[derive(Debug, Parser)]
-#[command(name = "osanwe", version, about = "Interactive Codex and Grok pane orchestrator")]
+#[command(
+    name = "osanwe",
+    version,
+    about = "Interactive Codex and Grok pane orchestrator"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -90,15 +94,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
             run_id,
             agent_id,
             resume,
-        } => {
-            pane::run_agent_pane(
-                RunStore::from_environment()?,
-                &run_id,
-                &agent_id,
-                resume,
-            )
-            .await
-        }
+        } => pane::run_agent_pane(RunStore::from_environment()?, &run_id, &agent_id, resume).await,
         Commands::Bridge => mcp::run_stdio().await,
         Commands::Hook => hook::forward_stdin().await,
         Commands::Checks { run_id } => {
@@ -134,11 +130,8 @@ async fn start(task: String, repo: PathBuf, no_attach: bool) -> anyhow::Result<(
         integration.clone(),
     );
     manifest.status = RunStatus::Planning;
-    let mut orchestrator = AgentRecord::new(
-        "orchestrator",
-        AgentRole::Orchestrator,
-        integration.clone(),
-    );
+    let mut orchestrator =
+        AgentRecord::new("orchestrator", AgentRole::Orchestrator, integration.clone());
     orchestrator.state = AgentState::PaneCreating;
     let mut planner = AgentRecord::new("planner", AgentRole::Planner, integration.clone());
     planner.state = AgentState::PaneCreating;
@@ -190,7 +183,10 @@ async fn start(task: String, repo: PathBuf, no_attach: bool) -> anyhow::Result<(
 
     println!("Osanwe run created: {run_id}");
     println!("Zellij session: {}", manifest.zellij_session);
-    println!("Integration worktree: {}", manifest.integration_worktree.display());
+    println!(
+        "Integration worktree: {}",
+        manifest.integration_worktree.display()
+    );
     if no_attach {
         println!("Attach with: osanwe attach {run_id}");
         Ok(())
@@ -313,10 +309,7 @@ async fn resume_agent(run_id: &str, agent_id: &str) -> anyhow::Result<()> {
     attach_terminal(&manifest.zellij_session).await
 }
 
-async fn ensure_orchestrator_pane(
-    store: &RunStore,
-    manifest: &RunManifest,
-) -> anyhow::Result<()> {
+async fn ensure_orchestrator_pane(store: &RunStore, manifest: &RunManifest) -> anyhow::Result<()> {
     let runner = Arc::new(TokioCommandRunner);
     let host = ZellijPaneHost::new(manifest.zellij_session.clone(), runner);
     let panes = host.list_panes().await.unwrap_or_default();
@@ -324,7 +317,11 @@ async fn ensure_orchestrator_pane(
         .agents
         .get("orchestrator")
         .and_then(|agent| agent.pane_id.as_deref())
-        .is_some_and(|id| panes.iter().any(|pane| pane.pane_id().as_str() == id && !pane.exited));
+        .is_some_and(|id| {
+            panes
+                .iter()
+                .any(|pane| pane.pane_id().as_str() == id && !pane.exited)
+        });
     if existing {
         return Ok(());
     }

@@ -19,12 +19,8 @@ impl Daemon {
             run.clone()
         };
         self.store.save(&snapshot)?;
-        self.store.append_event(&WorkflowEvent::new(
-            snapshot.run_id,
-            source,
-            kind,
-            payload,
-        ))?;
+        self.store
+            .append_event(&WorkflowEvent::new(snapshot.run_id, source, kind, payload))?;
         Ok(())
     }
 

@@ -79,7 +79,10 @@ impl Daemon {
             ) {
                 bail!("agent is not ready for prompt injection: {:?}", agent.state)
             }
-            agent.pane_id.clone().context("agent pane is not registered")?
+            agent
+                .pane_id
+                .clone()
+                .context("agent pane is not registered")?
         };
 
         self.apply_and_persist(
@@ -110,13 +113,13 @@ impl Daemon {
         .await
     }
 
-    pub(super) async fn create_repair_assignment(
-        &self,
-        fixes: Vec<String>,
-    ) -> anyhow::Result<()> {
+    pub(super) async fn create_repair_assignment(&self, fixes: Vec<String>) -> anyhow::Result<()> {
         let (assignment, snapshot) = {
             let mut run = self.run.lock().await;
-            let plan = run.plan.clone().context("repair requires an approved plan")?;
+            let plan = run
+                .plan
+                .clone()
+                .context("repair requires an approved plan")?;
             let repair_number = run
                 .assignments
                 .iter()
@@ -141,10 +144,12 @@ impl Daemon {
                 acceptance_criteria.extend(step.acceptance_criteria.iter().cloned());
             }
             let goal = if fixes.is_empty() {
-                "Repair the implementation using the latest check and verification evidence."
-                    .into()
+                "Repair the implementation using the latest check and verification evidence.".into()
             } else {
-                format!("Repair the following required findings:\n- {}", fixes.join("\n- "))
+                format!(
+                    "Repair the following required findings:\n- {}",
+                    fixes.join("\n- ")
+                )
             };
             let assignment = Assignment {
                 id: format!("R{repair_number}"),

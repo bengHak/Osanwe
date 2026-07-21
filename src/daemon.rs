@@ -38,11 +38,7 @@ pub(super) enum Identity {
 }
 
 impl Daemon {
-    pub async fn load(
-        store: RunStore,
-        run_id: &str,
-        executable: PathBuf,
-    ) -> anyhow::Result<Self> {
+    pub async fn load(store: RunStore, run_id: &str, executable: PathBuf) -> anyhow::Result<Self> {
         let run = store.load(run_id)?;
         let runner = Arc::new(TokioCommandRunner);
         let pane_host = Arc::new(ZellijPaneHost::new(
@@ -97,8 +93,5 @@ impl RpcHandler for Daemon {
 
 pub async fn run_daemon(store: RunStore, run_id: &str) -> anyhow::Result<()> {
     let executable = std::env::current_exe().context("resolve Osanwe executable")?;
-    Daemon::load(store, run_id, executable)
-        .await?
-        .serve()
-        .await
+    Daemon::load(store, run_id, executable).await?.serve().await
 }

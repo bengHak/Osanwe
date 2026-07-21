@@ -5,9 +5,7 @@ use anyhow::{bail, Context};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::model::{
-    AgentRole, Assignment, AssignmentStatus, PlanSpec, Provider, RunManifest,
-};
+use crate::model::{AgentRole, Assignment, AssignmentStatus, PlanSpec, Provider, RunManifest};
 use crate::workspace::validate_relative_scope;
 
 use super::Identity;
@@ -54,10 +52,7 @@ pub(super) fn identity_agent(identity: &Identity) -> anyhow::Result<String> {
     }
 }
 
-pub(super) fn require_role(
-    identity: &Identity,
-    expected: AgentRole,
-) -> anyhow::Result<String> {
+pub(super) fn require_role(identity: &Identity, expected: AgentRole) -> anyhow::Result<String> {
     match identity {
         Identity::Agent { id, role } if *role == expected => Ok(id.clone()),
         Identity::Agent { role, .. } => {

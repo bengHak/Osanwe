@@ -20,7 +20,9 @@ pub async fn run_agent_pane(
         .get(agent_id)
         .cloned()
         .with_context(|| format!("unknown agent: {agent_id}"))?;
-    let provider = agent.provider.context("agent does not have an LLM provider")?;
+    let provider = agent
+        .provider
+        .context("agent does not have an LLM provider")?;
     let executable = std::env::current_exe().context("resolve Osanwe executable")?;
     let context = LaunchContext::from_environment(
         run.run_id.clone(),
@@ -84,7 +86,10 @@ pub async fn run_agent_pane(
 
 pub async fn run_check_pane(store: RunStore, run_id: &str) -> anyhow::Result<()> {
     let run = store.load(run_id)?;
-    let checks_agent = run.agents.get("checks").context("checks agent is missing")?;
+    let checks_agent = run
+        .agents
+        .get("checks")
+        .context("checks agent is missing")?;
     let checks = run
         .plan
         .as_ref()

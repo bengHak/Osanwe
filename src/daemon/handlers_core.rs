@@ -23,13 +23,9 @@ impl Daemon {
                 require_admin(&identity)?;
                 self.approve_plan().await
             }
-            "assignment.complete" => {
-                self.complete_assignment(&identity, &request.params).await
-            }
+            "assignment.complete" => self.complete_assignment(&identity, &request.params).await,
             "checks.complete" => self.complete_checks(&identity, &request.params).await,
-            "verification.submit" => {
-                self.submit_verification(&identity, &request.params).await
-            }
+            "verification.submit" => self.submit_verification(&identity, &request.params).await,
             "progress.report" => self.report_progress(&identity, &request.params).await,
             "input.request" | "deviation.report" => {
                 self.request_attention(&identity, &request.params).await
@@ -62,15 +58,14 @@ impl Daemon {
         let run = self.run.lock().await.clone();
         match identity {
             Identity::Admin => Ok(serde_json::to_value(run)?),
-            Identity::Agent { id, .. } => self.assignment_view(identity, &json!({"agent_id": id})).await,
+            Identity::Agent { id, .. } => {
+                self.assignment_view(identity, &json!({"agent_id": id}))
+                    .await
+            }
         }
     }
 
-    async fn assignment_view(
-        &self,
-        identity: &Identity,
-        params: &Value,
-    ) -> anyhow::Result<Value> {
+    async fn assignment_view(&self, identity: &Identity, params: &Value) -> anyhow::Result<Value> {
         let agent_id = requested_agent(identity, params)?;
         let run = self.run.lock().await.clone();
         let agent = run
@@ -140,5 +135,4 @@ impl Daemon {
         };
         Ok(value)
     }
-
 }

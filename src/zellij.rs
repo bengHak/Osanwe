@@ -148,22 +148,23 @@ impl PaneHost for ZellijPaneHost {
 
     async fn paste(&self, pane_id: &str, text: &str) -> anyhow::Result<()> {
         self.runner
-            .run(&self.action("paste").args([
-                "--pane-id".into(),
-                pane_id.into(),
-                text.into(),
-            ]))
+            .run(
+                &self
+                    .action("paste")
+                    .args(["--pane-id".into(), pane_id.into(), text.into()]),
+            )
             .await?
             .require_success("paste into pane")?;
         Ok(())
     }
 
     async fn send_keys(&self, pane_id: &str, keys: &[&str]) -> anyhow::Result<()> {
-        let mut command = self.action("send-keys").args([
-            "--pane-id".into(),
-            pane_id.into(),
-        ]);
-        command.args.extend(keys.iter().map(|key| (*key).to_owned()));
+        let mut command = self
+            .action("send-keys")
+            .args(["--pane-id".into(), pane_id.into()]);
+        command
+            .args
+            .extend(keys.iter().map(|key| (*key).to_owned()));
         self.runner
             .run(&command)
             .await?

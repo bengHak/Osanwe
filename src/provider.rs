@@ -124,7 +124,12 @@ impl ProviderDriver {
     }
 
     pub fn resume_command(&self, ctx: &LaunchContext) -> anyhow::Result<CommandSpec> {
-        if ctx.provider_session_id.as_deref().unwrap_or_default().is_empty() {
+        if ctx
+            .provider_session_id
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty()
+        {
             bail!("provider session ID is required to resume an agent")
         }
         match self {
@@ -284,16 +289,14 @@ fn prepare_codex_overlay(ctx: &LaunchContext) -> anyhow::Result<ProviderOverlay>
     ] {
         hooks.insert(
             event.into(),
-            toml::Value::Array(vec![toml::Value::Table(toml::map::Map::from_iter([
-                (
-                    "hooks".into(),
-                    toml::Value::Array(vec![toml::Value::Table(toml::map::Map::from_iter([
-                        ("type".into(), toml::Value::String("command".into())),
-                        ("command".into(), toml::Value::String(hook_command.clone())),
-                        ("timeout".into(), toml::Value::Integer(5)),
-                    ]))]),
-                ),
-            ]))]),
+            toml::Value::Array(vec![toml::Value::Table(toml::map::Map::from_iter([(
+                "hooks".into(),
+                toml::Value::Array(vec![toml::Value::Table(toml::map::Map::from_iter([
+                    ("type".into(), toml::Value::String("command".into())),
+                    ("command".into(), toml::Value::String(hook_command.clone())),
+                    ("timeout".into(), toml::Value::Integer(5)),
+                ]))]),
+            )]))]),
         );
     }
     document.insert("hooks".into(), toml::Value::Table(hooks));

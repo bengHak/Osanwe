@@ -188,7 +188,10 @@ pub async fn run_stdio() -> anyhow::Result<()> {
                 match mapped {
                     Ok(mut daemon_request) => {
                         daemon_request.token = token.clone();
-                        match client.call(&daemon_request.method, daemon_request.params).await {
+                        match client
+                            .call(&daemon_request.method, daemon_request.params)
+                            .await
+                        {
                             Ok(result) => json!({
                                 "jsonrpc": "2.0",
                                 "id": id,

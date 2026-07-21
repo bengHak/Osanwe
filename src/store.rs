@@ -69,11 +69,9 @@ impl RunStore {
         let target = self.manifest_path(&manifest.run_id);
         let temporary = target.with_extension("json.tmp");
         let bytes = serde_json::to_vec_pretty(manifest)?;
-        fs::write(&temporary, bytes)
-            .with_context(|| format!("write {}", temporary.display()))?;
+        fs::write(&temporary, bytes).with_context(|| format!("write {}", temporary.display()))?;
         private_file(&temporary)?;
-        fs::rename(&temporary, &target)
-            .with_context(|| format!("replace {}", target.display()))?;
+        fs::rename(&temporary, &target).with_context(|| format!("replace {}", target.display()))?;
         Ok(())
     }
 
@@ -89,8 +87,8 @@ impl RunStore {
             return Ok(Vec::new());
         }
         let mut runs = Vec::new();
-        for entry in fs::read_dir(&directory)
-            .with_context(|| format!("read {}", directory.display()))?
+        for entry in
+            fs::read_dir(&directory).with_context(|| format!("read {}", directory.display()))?
         {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
@@ -208,7 +206,10 @@ mod tests {
 
         store.save(&manifest).unwrap();
         assert_eq!(store.load("run-1").unwrap(), manifest);
-        assert!(!store.manifest_path("run-1").with_extension("json.tmp").exists());
+        assert!(!store
+            .manifest_path("run-1")
+            .with_extension("json.tmp")
+            .exists());
     }
 
     #[test]

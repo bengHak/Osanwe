@@ -54,7 +54,12 @@ impl Workflow {
                 require_status(run, &[RunStatus::Planning, RunStatus::PlanReview])?;
                 run.plan = Some(plan);
                 run.status = RunStatus::PlanReview;
-                set_agent_state(run, &agent_id, AgentState::Idle, Some("plan submitted".into()))?;
+                set_agent_state(
+                    run,
+                    &agent_id,
+                    AgentState::Idle,
+                    Some("plan submitted".into()),
+                )?;
             }
             Transition::PlanApproved => {
                 require_status(run, &[RunStatus::PlanReview])?;
@@ -70,7 +75,9 @@ impl Workflow {
                     .assignments
                     .iter_mut()
                     .find(|assignment| assignment.id == result.assignment_id)
-                    .ok_or_else(|| WorkflowError::UnknownAssignment(result.assignment_id.clone()))?;
+                    .ok_or_else(|| {
+                        WorkflowError::UnknownAssignment(result.assignment_id.clone())
+                    })?;
                 if assignment.agent_id != agent_id {
                     return Err(WorkflowError::AssignmentOwnerMismatch);
                 }
@@ -110,7 +117,12 @@ impl Workflow {
                     VerificationVerdict::Blocked => RunStatus::Blocked,
                 };
                 run.verification = Some(report);
-                set_agent_state(run, &agent_id, AgentState::Idle, Some("review submitted".into()))?;
+                set_agent_state(
+                    run,
+                    &agent_id,
+                    AgentState::Idle,
+                    Some("review submitted".into()),
+                )?;
             }
             Transition::AgentStateChanged {
                 agent_id,

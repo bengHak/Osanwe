@@ -12,8 +12,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Recover dangling source blobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .recovered-blobs
+          for sha in \
+            d6de4b6f313660b8cee3c5446cc86c5f9a2625fa \
+            907c11d574157dd9e412721514b92bd395dcc8e9 \
+            67803333c5d64ac479cca43d57046d1d5f7137c9 \
+            4e454c2800804a582d77ee6ef5f272d2afc5bab5 \
+            c73fc3eb52b883a9ce4df0e92d74ebd60f5a1755
+          do
+            curl --fail --silent --show-error \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/blobs/${sha}" \
+              | jq -r '.content' \
+              | base64 --decode > ".recovered-blobs/${sha}.rs"
+          done
+
       - name: Remove Git metadata
         run: rm -rf .git
+
       - uses: actions/upload-artifact@v4
         with:
           name: recovered-tree

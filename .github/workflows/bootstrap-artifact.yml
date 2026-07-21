@@ -20,10 +20,36 @@ jobs:
           archive="$RUNNER_TEMP/osanwe-source.tar.gz"
           restore="$RUNNER_TEMP/osanwe-source"
           mkdir -p "$restore"
-          cat .bootstrap/part-* | base64 --decode > "$archive"
+
+          python3 - "$archive" <<'PY'
+          import base64
+          import glob
+          import pathlib
+          import sys
+
+          destination = pathlib.Path(sys.argv[1])
+          parts = [pathlib.Path(path) for path in sorted(glob.glob('.bootstrap/part-*'))]
+          if not parts:
+              raise SystemExit('no .bootstrap/part-* files found')
+
+          texts = [''.join(path.read_text().split()) for path in parts]
+          joined = ''.join(texts)
+          try:
+              payload = base64.b64decode(joined, validate=True)
+              mode = 'joined-base64'
+          except Exception:
+              payload = b''.join(base64.b64decode(text, validate=True) for text in texts)
+              mode = 'per-part-base64'
+
+          destination.write_bytes(payload)
+          print(f'decoded {len(parts)} parts using {mode}: {len(payload)} bytes')
+          PY
+
+          file "$archive"
+          gzip -t "$archive"
           tar -xzf "$archive" -C "$restore"
           echo "RESTORE_PATH=$restore" >> "$GITHUB_ENV"
-          find "$restore" -maxdepth 3 -type f | sort
+          find "$restore" -maxdepth 4 -type f | sort
 
       - name: Upload restored source
         uses: actions/upload-artifact@v4

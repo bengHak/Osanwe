@@ -10,9 +10,7 @@ fn planner_and_worker_receive_different_mutating_tools() {
     assert!(!planner
         .iter()
         .any(|tool| tool.name == "complete_assignment"));
-    assert!(worker
-        .iter()
-        .any(|tool| tool.name == "complete_assignment"));
+    assert!(worker.iter().any(|tool| tool.name == "complete_assignment"));
     assert!(!worker.iter().any(|tool| tool.name == "submit_plan"));
 }
 

@@ -7,6 +7,7 @@ use osanwe::state::{Transition, Workflow};
 #[test]
 fn planner_submission_moves_run_to_plan_review() {
     let mut run = RunManifest::new_for_test("add a feature");
+    run.status = RunStatus::Planning;
     run.agents.insert(
         "planner".into(),
         AgentRecord::test_agent("planner", AgentRole::Planner),
@@ -30,6 +31,7 @@ fn planner_submission_moves_run_to_plan_review() {
 #[test]
 fn worker_cannot_submit_plan() {
     let mut run = RunManifest::new_for_test("add a feature");
+    run.status = RunStatus::Planning;
     run.agents.insert(
         "worker-1".into(),
         AgentRecord::test_agent("worker-1", AgentRole::Worker),
@@ -44,7 +46,7 @@ fn worker_cannot_submit_plan() {
     )
     .expect_err("worker plan submission must be rejected");
 
-    assert!(error.to_string().contains("planner"));
+    assert!(error.to_string().contains("Planner"));
 }
 
 #[test]

@@ -1,0 +1,65 @@
+name: Restore implementation bundle
+
+on:
+  push:
+    branches: [feat/curl-install]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/curl-install
+          fetch-depth: 0
+
+      - name: Restore source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .bootstrap/part-00
+
+          archive="$RUNNER_TEMP/osanwe-source.tar.gz"
+          restore="$RUNNER_TEMP/osanwe-source"
+          mkdir -p "$restore"
+
+          cat .bootstrap/part-* | base64 --decode > "$archive"
+          tar -xzf "$archive" -C "$restore"
+
+          source_root="$restore"
+          if [[ ! -f "$source_root/Cargo.toml" ]]; then
+            mapfile -t candidates < <(find "$restore" -mindepth 1 -maxdepth 2 -type f -name Cargo.toml -printf '%h\n' | sort -u)
+            if [[ ${#candidates[@]} -ne 1 ]]; then
+              echo "Unable to identify restored source root" >&2
+              find "$restore" -maxdepth 3 -type f | sort >&2
+              exit 1
+            fi
+            source_root="${candidates[0]}"
+          fi
+
+          rsync -a \
+            --exclude '.git/' \
+            --exclude '.bootstrap/' \
+            --exclude '.github/workflows/' \
+            "$source_root/" ./
+
+          rm -rf .bootstrap
+
+      - name: Commit restored implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No restored changes to commit"
+            exit 0
+          fi
+          git commit -m "feat: restore Osanwe implementation [skip ci]"
+          git push origin HEAD:feat/curl-install

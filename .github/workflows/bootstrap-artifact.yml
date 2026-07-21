@@ -1,0 +1,34 @@
+name: Export restored source
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decode implementation bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/osanwe-source.tar.gz"
+          restore="$RUNNER_TEMP/osanwe-source"
+          mkdir -p "$restore"
+          cat .bootstrap/part-* | base64 --decode > "$archive"
+          tar -xzf "$archive" -C "$restore"
+          echo "RESTORE_PATH=$restore" >> "$GITHUB_ENV"
+          find "$restore" -maxdepth 3 -type f | sort
+
+      - name: Upload restored source
+        uses: actions/upload-artifact@v4
+        with:
+          name: restored-source
+          path: ${{ env.RESTORE_PATH }}
+          include-hidden-files: true
+          if-no-files-found: error

@@ -60,6 +60,8 @@ osanwe
 3. A **Zellij** session starts with one native interactive pane per role (plus a board pane).
 4. Type todos/goals in the **orchestrator** pane; all roles share `.osanwe/`.
 
+Press **Ctrl+Q** to stop every pane and permanently delete the Zellij session; use **Ctrl+O, D** to detach without stopping it.
+
 Re-run bare `osanwe` later to resume/relaunch using the saved config (no re-prompt unless you re-onboard).
 
 ### Non-interactive defaults (CI / scripts)

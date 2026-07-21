@@ -16,45 +16,72 @@ jobs:
       - name: Decode implementation bundle
         shell: bash
         run: |
-          set -euo pipefail
-          archive="$RUNNER_TEMP/osanwe-source.tar.gz"
-          restore="$RUNNER_TEMP/osanwe-source"
+          set -u
+          export_dir="$RUNNER_TEMP/restored-source"
+          archive="$export_dir/osanwe-source.tar.gz"
+          restore="$export_dir/tree"
           mkdir -p "$restore"
 
-          python3 - "$archive" <<'PY'
+          python3 - "$archive" "$export_dir/diagnostic.txt" <<'PY'
           import base64
           import glob
+          import gzip
           import pathlib
+          import tarfile
+          import traceback
           import sys
 
           destination = pathlib.Path(sys.argv[1])
-          parts = [pathlib.Path(path) for path in sorted(glob.glob('.bootstrap/part-*'))]
-          if not parts:
-              raise SystemExit('no .bootstrap/part-* files found')
-
-          texts = [''.join(path.read_text().split()) for path in parts]
-          joined = ''.join(texts)
+          diagnostic = pathlib.Path(sys.argv[2])
+          lines = []
           try:
-              payload = base64.b64decode(joined, validate=True)
-              mode = 'joined-base64'
-          except Exception:
-              payload = b''.join(base64.b64decode(text, validate=True) for text in texts)
-              mode = 'per-part-base64'
+              parts = [pathlib.Path(path) for path in sorted(glob.glob('.bootstrap/part-*'))]
+              lines.append(f'parts={len(parts)}')
+              for part in parts:
+                  lines.append(f'{part}: {part.stat().st_size} bytes')
+              if not parts:
+                  raise RuntimeError('no .bootstrap/part-* files found')
 
-          destination.write_bytes(payload)
-          print(f'decoded {len(parts)} parts using {mode}: {len(payload)} bytes')
+              texts = [''.join(path.read_text().split()) for path in parts]
+              joined = ''.join(texts)
+              lines.append(f'joined_base64_chars={len(joined)}')
+
+              attempts = []
+              for mode in ('joined-base64', 'per-part-base64'):
+                  try:
+                      if mode == 'joined-base64':
+                          payload = base64.b64decode(joined, validate=True)
+                      else:
+                          payload = b''.join(base64.b64decode(text, validate=True) for text in texts)
+                      attempts.append(f'{mode}: decoded {len(payload)} bytes')
+                      destination.write_bytes(payload)
+                      with gzip.open(destination, 'rb') as stream:
+                          stream.read(1)
+                      with tarfile.open(destination, 'r:gz') as archive:
+                          members = archive.getmembers()
+                          attempts.append(f'{mode}: tar members={len(members)}')
+                          archive.extractall(destination.parent / 'tree')
+                      lines.extend(attempts)
+                      lines.append(f'selected={mode}')
+                      break
+                  except Exception as error:
+                      attempts.append(f'{mode}: {type(error).__name__}: {error}')
+              else:
+                  lines.extend(attempts)
+                  raise RuntimeError('all bundle decode strategies failed')
+          except Exception:
+              lines.append(traceback.format_exc())
+          diagnostic.write_text('\n'.join(lines) + '\n')
+          print(diagnostic.read_text())
           PY
 
-          file "$archive"
-          gzip -t "$archive"
-          tar -xzf "$archive" -C "$restore"
-          echo "RESTORE_PATH=$restore" >> "$GITHUB_ENV"
-          find "$restore" -maxdepth 4 -type f | sort
+          echo "EXPORT_PATH=$export_dir" >> "$GITHUB_ENV"
+          find "$export_dir" -maxdepth 5 -type f -printf '%p %s bytes\n' | sort
 
-      - name: Upload restored source
+      - name: Upload restored source and diagnostics
         uses: actions/upload-artifact@v4
         with:
           name: restored-source
-          path: ${{ env.RESTORE_PATH }}
+          path: ${{ env.EXPORT_PATH }}
           include-hidden-files: true
           if-no-files-found: error

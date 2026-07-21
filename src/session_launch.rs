@@ -11,9 +11,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 
 use crate::process::{CommandSpec, TokioCommandRunner};
-use crate::project::{
-    load_config, osanwe_dir, scaffold, ClientKind, ProjectConfig, RoleChoice,
-};
+use crate::project::{load_config, osanwe_dir, scaffold, ClientKind, ProjectConfig, RoleChoice};
 use crate::zellij::{PaneHost, PaneSpec, ZellijPaneHost};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -176,10 +174,7 @@ pub struct SessionRecord {
 }
 
 /// Ensure scaffold, write session record, start Zellij panes, optionally attach.
-pub async fn launch_project_session(
-    project_root: &Path,
-    no_attach: bool,
-) -> anyhow::Result<()> {
+pub async fn launch_project_session(project_root: &Path, no_attach: bool) -> anyhow::Result<()> {
     require_unix()?;
     scaffold(project_root)?;
     let config = load_config(project_root)?;
@@ -395,7 +390,10 @@ pub fn run_board(project_root: &Path) -> anyhow::Result<()> {
             println!("  (none yet — add files under .osanwe/todos/)");
         } else {
             for entry in entries {
-                println!("  - {}", entry.file_name().unwrap_or_default().to_string_lossy());
+                println!(
+                    "  - {}",
+                    entry.file_name().unwrap_or_default().to_string_lossy()
+                );
             }
         }
     }
@@ -452,10 +450,7 @@ mod tests {
         let worker = specs.iter().find(|s| s.role == "worker").unwrap();
         assert_eq!(worker.command.program, "grok");
         assert!(worker.command.args.iter().any(|a| a == "grok-4.5"));
-        assert_eq!(
-            worker.command.cwd.as_deref(),
-            Some(root)
-        );
+        assert_eq!(worker.command.cwd.as_deref(), Some(root));
     }
 
     #[test]

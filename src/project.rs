@@ -238,18 +238,18 @@ pub fn scaffold(project_root: &Path) -> anyhow::Result<PathBuf> {
 
     let board = root.join("board/status.md");
     if !board.exists() {
-        fs::write(
-            &board,
-            "# Osanwe board\n\nNo session activity yet.\n",
-        )
-        .with_context(|| format!("write {}", board.display()))?;
+        fs::write(&board, "# Osanwe board\n\nNo session activity yet.\n")
+            .with_context(|| format!("write {}", board.display()))?;
     }
 
     Ok(root)
 }
 
 /// Scaffold directories and persist `config.toml`.
-pub fn scaffold_with_config(project_root: &Path, config: &ProjectConfig) -> anyhow::Result<PathBuf> {
+pub fn scaffold_with_config(
+    project_root: &Path,
+    config: &ProjectConfig,
+) -> anyhow::Result<PathBuf> {
     let root = scaffold(project_root)?;
     save_config(project_root, config)?;
     Ok(root)
@@ -417,7 +417,10 @@ mod tests {
                 "missing dir {name}"
             );
         }
-        assert!(root.join(OSANWE_DIR).join("prompts/orchestrator.md").is_file());
+        assert!(root
+            .join(OSANWE_DIR)
+            .join("prompts/orchestrator.md")
+            .is_file());
         assert!(root.join(OSANWE_DIR).join("README.md").is_file());
 
         let loaded = load_config(root).unwrap();

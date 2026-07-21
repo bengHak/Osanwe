@@ -153,7 +153,9 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Commands::Daemon { run_id }) => {
             daemon::run_daemon(RunStore::from_environment()?, &run_id).await
         }
-        Some(Commands::Tui { run_id }) => crate::tui::run(RunStore::from_environment()?, &run_id).await,
+        Some(Commands::Tui { run_id }) => {
+            crate::tui::run(RunStore::from_environment()?, &run_id).await
+        }
         Some(Commands::Pane {
             run_id,
             agent_id,
@@ -402,7 +404,9 @@ async fn doctor() -> anyhow::Result<()> {
 
     println!();
     if missing.is_empty() {
-        println!("All required tools are available. Run `osanwe` in a project to onboard and launch.");
+        println!(
+            "All required tools are available. Run `osanwe` in a project to onboard and launch."
+        );
         Ok(())
     } else {
         println!("Missing or broken tools — install guidance:\n");

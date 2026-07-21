@@ -376,9 +376,7 @@ fn run_tui_onboarding(project_root: &Path) -> anyhow::Result<ProjectConfig> {
             let client = role
                 .map(|r| r.client(&wizard.clients).to_string())
                 .unwrap_or_default();
-            let model = role
-                .map(|r| r.model_id(&wizard.clients))
-                .unwrap_or("");
+            let model = role.map(|r| r.model_id(&wizard.clients)).unwrap_or("");
 
             let step_lines = match wizard.phase() {
                 OnboardPhase::PickClient { role_index } => {
@@ -472,9 +470,7 @@ fn run_tui_onboarding(project_root: &Path) -> anyhow::Result<ProjectConfig> {
                     ))];
                     for (name, c, m, enabled) in wizard.roles_summary() {
                         let flag = if enabled { "on " } else { "off" };
-                        summary.push(Line::from(format!(
-                            "  [{flag}] {name:<13} {c:<6} {m}"
-                        )));
+                        summary.push(Line::from(format!("  [{flag}] {name:<13} {c:<6} {m}")));
                     }
                     frame.render_widget(
                         Paragraph::new(summary)
@@ -706,7 +702,10 @@ mod tests {
             let _ = w.confirm_current();
         }
         assert!(matches!(w.phase(), OnboardPhase::PickModel { .. }));
-        assert_eq!(w.current_role().unwrap().model_id(&w.clients), "gpt-5.6-sol");
+        assert_eq!(
+            w.current_role().unwrap().model_id(&w.clients),
+            "gpt-5.6-sol"
+        );
 
         w.cycle_model(1);
         assert_eq!(
@@ -714,7 +713,10 @@ mod tests {
             "gpt-5.6-terra"
         );
         w.cycle_model(-1);
-        assert_eq!(w.current_role().unwrap().model_id(&w.clients), "gpt-5.6-sol");
+        assert_eq!(
+            w.current_role().unwrap().model_id(&w.clients),
+            "gpt-5.6-sol"
+        );
 
         // Wrap around
         w.cycle_model(-1);
@@ -731,10 +733,15 @@ mod tests {
         for _ in 0..4 {
             let _ = w.confirm_current();
         }
-        assert!(matches!(w.phase(), OnboardPhase::PickModel { role_index: 0 }));
+        assert!(matches!(
+            w.phase(),
+            OnboardPhase::PickModel { role_index: 0 }
+        ));
         let models = w.current_models();
         assert_eq!(models[0].id, "grok-4.5");
-        assert!(models.iter().all(|m| GROK_MODELS.iter().any(|g| g.id == m.id)));
+        assert!(models
+            .iter()
+            .all(|m| GROK_MODELS.iter().any(|g| g.id == m.id)));
         // Single stock model — cycling wraps to the same id.
         w.cycle_model(1);
         assert_eq!(w.current_role().unwrap().model_id(&w.clients), "grok-4.5");

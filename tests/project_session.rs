@@ -49,12 +49,13 @@ fn custom_role_clients_drive_launch_commands() {
 
     let orch = by_role("orchestrator");
     assert_eq!(orch.command.program, "grok");
-    assert!(orch.command.args.windows(2).any(|w| w == ["-m", "grok-fast"]));
+    assert!(orch
+        .command
+        .args
+        .windows(2)
+        .any(|w| w == ["-m", "grok-fast"]));
     assert!(
-        orch.command
-            .args
-            .windows(2)
-            .any(|w| w[0] == "--session-id"),
+        orch.command.args.windows(2).any(|w| w[0] == "--session-id"),
         "first Grok launch should use --session-id: {:?}",
         orch.command.args
     );
@@ -63,8 +64,7 @@ fn custom_role_clients_drive_launch_commands() {
         Some(osanwe_dir(root).to_str().unwrap())
     );
     // Env is on CommandSpec; Zellij create_pane wraps it via `env KEY=VAL`.
-    let (pane_prog, pane_args) =
-        osanwe::zellij::pane_program_and_args(&orch.command);
+    let (pane_prog, pane_args) = osanwe::zellij::pane_program_and_args(&orch.command);
     assert_eq!(pane_prog, "env");
     assert!(pane_args.iter().any(|a| a.starts_with("OSANWE_DIR=")));
     assert!(pane_args.iter().any(|a| a == "grok"));
@@ -73,11 +73,7 @@ fn custom_role_clients_drive_launch_commands() {
     let planner = by_role("planner");
     assert_eq!(planner.command.program, "codex");
     assert!(planner.command.args.iter().any(|a| a == "-C"));
-    assert!(planner
-        .command
-        .args
-        .windows(2)
-        .any(|w| w == ["-m", "o3"]));
+    assert!(planner.command.args.windows(2).any(|w| w == ["-m", "o3"]));
     assert_eq!(
         planner.command.env.get("OSANWE_ROLE").map(String::as_str),
         Some("planner")
@@ -137,10 +133,7 @@ fn binary_help_surfaces_new_primary_commands() {
         stdout.contains("doctor"),
         "help should list doctor: {stdout}"
     );
-    assert!(
-        stdout.contains("stop"),
-        "help should list stop: {stdout}"
-    );
+    assert!(stdout.contains("stop"), "help should list stop: {stdout}");
     // Primary product path is bare invocation / onboard — not only start "<task>".
     assert!(
         stdout.to_lowercase().contains("file bus")
@@ -174,5 +167,7 @@ fn binary_onboard_defaults_writes_project_config() {
     let config = load_config(root).unwrap();
     assert_eq!(config.roles.orchestrator.client, ClientKind::Codex);
     assert_eq!(config.roles.worker.client, ClientKind::Grok);
-    assert!(Path::new(&osanwe_dir(root)).join("prompts/worker.md").is_file());
+    assert!(Path::new(&osanwe_dir(root))
+        .join("prompts/worker.md")
+        .is_file());
 }

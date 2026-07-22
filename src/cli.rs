@@ -165,7 +165,6 @@ async fn doctor() -> anyhow::Result<()> {
     for (index, (program, args, purpose, _)) in checks.iter().enumerate() {
         match Command::new(program).args(args).output().await {
             Ok(output) if output.status.success() => {
-                available[index] = true;
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let version = if stdout.trim().is_empty() {
@@ -173,6 +172,12 @@ async fn doctor() -> anyhow::Result<()> {
                 } else {
                     stdout.trim()
                 };
+                if *program == "zellij" && !zellij_version_supported(version) {
+                    eprintln!("✗ {program:<8} {version} (0.44+ required)");
+                    eprintln!("         {purpose}");
+                    continue;
+                }
+                available[index] = true;
                 println!("✓ {program:<8} {version}");
                 println!("         {purpose}");
             }
@@ -221,6 +226,24 @@ async fn doctor() -> anyhow::Result<()> {
 
 fn doctor_requirements_met(zellij: bool, codex: bool, grok: bool) -> bool {
     zellij && (codex || grok)
+}
+
+fn zellij_version_supported(output: &str) -> bool {
+    let mut words = output.split_whitespace();
+    let Some(version) = words
+        .find(|word| word.eq_ignore_ascii_case("zellij"))
+        .and_then(|_| words.next())
+    else {
+        return false;
+    };
+    let mut parts = version.trim_start_matches('v').split('.');
+    let Some(major) = parts.next().and_then(|part| part.parse::<u64>().ok()) else {
+        return false;
+    };
+    let Some(minor) = parts.next().and_then(|part| part.parse::<u64>().ok()) else {
+        return false;
+    };
+    major > 0 || minor >= 44
 }
 
 fn require_unix() -> anyhow::Result<()> {
@@ -284,5 +307,16 @@ mod tests {
         assert!(doctor_requirements_met(true, false, true));
         assert!(!doctor_requirements_met(true, false, false));
         assert!(!doctor_requirements_met(false, true, true));
+    }
+
+    #[test]
+    fn doctor_enforces_zellij_minimum_version() {
+        assert!(!zellij_version_supported("zellij 0.43.1"));
+        assert!(zellij_version_supported("zellij 0.44.0"));
+        assert!(zellij_version_supported("zellij 0.44.3"));
+        assert!(zellij_version_supported("zellij 1.0.0"));
+        assert!(!zellij_version_supported("warning 1.0 zellij 0.43.1"));
+        assert!(!zellij_version_supported("not-zellij 1.0.0"));
+        assert!(!zellij_version_supported("unknown"));
     }
 }

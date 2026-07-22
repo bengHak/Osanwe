@@ -295,7 +295,10 @@ pub async fn stop_project_session(project_root: &Path) -> anyhow::Result<()> {
             println!("Stopped Zellij session {}", config.zellij_session);
             Ok(())
         }
-        Ok(output) if missing_session_error(&String::from_utf8_lossy(&output.stderr)) => {
+        Ok(output)
+            if missing_session_error(&String::from_utf8_lossy(&output.stdout))
+                || missing_session_error(&String::from_utf8_lossy(&output.stderr)) =>
+        {
             println!("Zellij session {} is already absent", config.zellij_session,);
             Ok(())
         }
@@ -309,8 +312,10 @@ pub async fn stop_project_session(project_root: &Path) -> anyhow::Result<()> {
     }
 }
 
-fn missing_session_error(stderr: &str) -> bool {
-    stderr.to_ascii_lowercase().contains("not found")
+fn missing_session_error(output: &str) -> bool {
+    let message = output.to_ascii_lowercase();
+    message.contains("session not found")
+        || (message.contains("no session named") && message.contains("found"))
 }
 
 fn write_board_status(
@@ -494,6 +499,10 @@ mod tests {
     #[test]
     fn stop_ignores_only_a_missing_session() {
         assert!(missing_session_error("Session not found"));
+        assert!(missing_session_error(
+            "No session named \"osanwe-missing\" found."
+        ));
+        assert!(!missing_session_error("configuration file not found"));
         assert!(!missing_session_error("permission denied"));
     }
 

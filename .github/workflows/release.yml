@@ -88,8 +88,16 @@ jobs:
           test "$count" -eq 4
           sha256sum osanwe-*.tar.gz > SHA256SUMS
           cat SHA256SUMS
+      - name: Smoke-test packaged curl installation
+        shell: bash
+        env:
+          OSANWE_DOWNLOAD_BASE: file://${{ github.workspace }}/dist
+          OSANWE_INSTALL_DIR: ${{ runner.temp }}/osanwe-bin
+        run: |
+          set -euo pipefail
+          sh install.sh
+          "$OSANWE_INSTALL_DIR/osanwe" --version
       - name: Create version release
-        id: release
         shell: bash
         run: |
           set -euo pipefail
@@ -98,14 +106,3 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Osanwe $GITHUB_REF_NAME" \
             --generate-notes
-          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
-      - name: Smoke-test private curl installation
-        shell: bash
-        env:
-          OSANWE_GITHUB_TOKEN: ${{ github.token }}
-          OSANWE_INSTALL_DIR: ${{ runner.temp }}/osanwe-bin
-          OSANWE_VERSION: ${{ steps.release.outputs.tag }}
-        run: |
-          set -euo pipefail
-          sh install.sh
-          "$OSANWE_INSTALL_DIR/osanwe" --version

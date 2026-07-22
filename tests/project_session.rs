@@ -171,3 +171,25 @@ fn binary_onboard_defaults_writes_project_config() {
         .join("prompts/worker.md")
         .is_file());
 }
+
+#[test]
+fn onboard_defaults_requires_force_to_replace_existing_config() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let mut config = ProjectConfig::defaults_for_repo(root);
+    config.roles.worker.model = "keep-me".into();
+    scaffold_with_config(root, &config).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_osanwe"))
+        .args([
+            "onboard",
+            "--defaults",
+            "--repo",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(load_config(root).unwrap().roles.worker.model, "keep-me");
+}

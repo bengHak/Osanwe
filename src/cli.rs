@@ -195,7 +195,7 @@ async fn onboard_command(
     no_attach: bool,
 ) -> anyhow::Result<()> {
     let root = project::find_project_root(&repo)?;
-    if config_exists(&root) && !force && !defaults {
+    if config_exists(&root) && !force {
         bail!(
             "`.osanwe/config.toml` already exists; pass --force to re-onboard or run bare `osanwe` to launch"
         );

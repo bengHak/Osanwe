@@ -10,6 +10,10 @@ Please report vulnerabilities privately through GitHub's private vulnerability r
 
 ## Trust boundaries
 
-Osanwe launches user-installed Codex CLI, Grok Build, Git, and Zellij executables. Their binaries, existing extensions, and authenticated MCP servers remain in the user's trust domain. Osanwe adds a role-scoped local MCP bridge and hooks but does not treat hook delivery as a complete sandbox.
+Osanwe launches user-installed Codex CLI, Grok Build, Git, and Zellij executables. Their binaries, authentication, configuration, plugins, skills, hooks, MCP servers, and other extensions remain in the user's trust domain.
 
-Run state uses user-only filesystem permissions and agent-scoped random tokens. The original repository working tree is not used as a writable provider workspace.
+Selected providers run in the original project directory. Codex roles default to `workspace-write` for orchestrator/worker and `read-only` for planner/verifier; these defaults are not a complete security boundary. Grok permissions follow the user's Grok configuration and command-line defaults.
+
+The project-local `.osanwe/` directory contains configuration, role prompts, coordination files, and provider session identifiers. Treat repository-controlled prompt files as trusted input before launching Osanwe, and keep `.osanwe/sessions/` out of version control.
+
+Osanwe does not add a daemon, local RPC socket, MCP bridge, hook overlay, or isolated Git worktree to the primary file-bus flow.

@@ -161,10 +161,11 @@ async fn doctor() -> anyhow::Result<()> {
         ),
     ];
 
-    let mut missing: Vec<(&str, &str)> = Vec::new();
-    for (program, args, purpose, hint) in checks {
+    let mut available = [false; 4];
+    for (index, (program, args, purpose, _)) in checks.iter().enumerate() {
         match Command::new(program).args(args).output().await {
             Ok(output) if output.status.success() => {
+                available[index] = true;
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let version = if stdout.trim().is_empty() {
@@ -176,7 +177,6 @@ async fn doctor() -> anyhow::Result<()> {
                 println!("         {purpose}");
             }
             Ok(output) => {
-                missing.push((program, hint));
                 eprintln!(
                     "✗ {program:<8} exited with {:?}: {}",
                     output.status.code(),
@@ -185,7 +185,6 @@ async fn doctor() -> anyhow::Result<()> {
                 eprintln!("         {purpose}");
             }
             Err(error) => {
-                missing.push((program, hint));
                 eprintln!("✗ {program:<8} {error}");
                 eprintln!("         {purpose}");
             }
@@ -193,22 +192,35 @@ async fn doctor() -> anyhow::Result<()> {
     }
 
     println!();
-    if missing.is_empty() {
-        println!(
-            "All required tools are available. Run `osanwe` in a project to onboard and launch."
-        );
+    let [git, zellij, codex, grok] = available;
+    if doctor_requirements_met(zellij, codex, grok) {
+        if !git {
+            println!("Note: Git is optional; project root detection will use `.osanwe` or cwd.");
+        }
+        if !codex || !grok {
+            println!("Note: only the provider selected during onboarding is required.");
+        }
+        println!("Ready. Run `osanwe` in a project to onboard and launch.");
         Ok(())
     } else {
-        println!("Missing or broken tools — install guidance:\n");
-        for (program, hint) in &missing {
-            println!("  • {program}");
-            println!("      {hint}");
+        println!("Missing required tools — install guidance:\n");
+        if !zellij {
+            println!("  • {}\n      {}", checks[1].0, checks[1].3);
+        }
+        if !codex && !grok {
+            for check in &checks[2..] {
+                println!("  • {}\n      {}", check.0, check.3);
+            }
         }
         println!();
         println!("After installing, re-run: osanwe doctor");
         println!("Then from a git project:   osanwe");
         bail!("one or more required runtime tools are unavailable")
     }
+}
+
+fn doctor_requirements_met(zellij: bool, codex: bool, grok: bool) -> bool {
+    zellij && (codex || grok)
 }
 
 fn require_unix() -> anyhow::Result<()> {
@@ -264,5 +276,13 @@ mod tests {
         assert!(matches!(cli.command, Some(Commands::Doctor)));
         let cli = Cli::try_parse_from(["osanwe", "attach", "--repo", "."]).unwrap();
         assert!(matches!(cli.command, Some(Commands::Attach { .. })));
+    }
+
+    #[test]
+    fn doctor_requires_zellij_and_one_provider() {
+        assert!(doctor_requirements_met(true, true, false));
+        assert!(doctor_requirements_met(true, false, true));
+        assert!(!doctor_requirements_met(true, false, false));
+        assert!(!doctor_requirements_met(false, true, true));
     }
 }

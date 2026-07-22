@@ -4,16 +4,13 @@ use std::process::Stdio;
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandSpec {
     pub program: String,
-    #[serde(default)]
     pub args: Vec<String>,
     pub cwd: Option<PathBuf>,
-    #[serde(default)]
     pub env: BTreeMap<String, String>,
 }
 

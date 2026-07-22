@@ -7,15 +7,14 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
-use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use uuid::Uuid;
 
 use crate::process::{CommandRunner, CommandSpec, TokioCommandRunner};
 use crate::project::{load_config, osanwe_dir, scaffold, ClientKind, ProjectConfig, RoleChoice};
-use crate::zellij::{PaneHost, PaneSpec, ZellijPaneHost};
+use crate::zellij::{PaneSpec, ZellijPaneHost};
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RoleLaunchSpec {
     pub role: String,
     pub client: ClientKind,
@@ -198,15 +197,7 @@ fn role_label(role: &str) -> &'static str {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SessionRecord {
-    pub project_root: String,
-    pub zellij_session: String,
-    pub roles: Vec<String>,
-    pub started_at_unix: u64,
-}
-
-/// Ensure scaffold, write session record, start Zellij panes, optionally attach.
+/// Ensure scaffold, start Zellij panes, and optionally attach.
 pub async fn launch_project_session(project_root: &Path, no_attach: bool) -> anyhow::Result<()> {
     require_unix()?;
     scaffold(project_root)?;
@@ -216,7 +207,6 @@ pub async fn launch_project_session(project_root: &Path, no_attach: bool) -> any
         bail!("no roles configured to launch");
     }
 
-    write_session_record(project_root, &config, &specs)?;
     write_board_status(project_root, &config, &specs)?;
 
     let runner = Arc::new(TokioCommandRunner);
@@ -321,27 +311,6 @@ pub async fn stop_project_session(project_root: &Path) -> anyhow::Result<()> {
 
 fn missing_session_error(stderr: &str) -> bool {
     stderr.to_ascii_lowercase().contains("not found")
-}
-
-fn write_session_record(
-    project_root: &Path,
-    config: &ProjectConfig,
-    specs: &[RoleLaunchSpec],
-) -> anyhow::Result<()> {
-    let record = SessionRecord {
-        project_root: path_text(project_root)?,
-        zellij_session: config.zellij_session.clone(),
-        roles: specs.iter().map(|s| s.role.clone()).collect(),
-        started_at_unix: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
-    };
-    let path = osanwe_dir(project_root).join("sessions/current.json");
-    fs::create_dir_all(path.parent().unwrap())?;
-    fs::write(&path, serde_json::to_vec_pretty(&record)?)
-        .with_context(|| format!("write {}", path.display()))?;
-    Ok(())
 }
 
 fn write_board_status(
@@ -610,7 +579,6 @@ mod tests {
         config.roles.orchestrator = RoleChoice::new(ClientKind::Grok, "grok-fast");
         config.roles.planner = RoleChoice::new(ClientKind::Codex, "o3");
         config.roles.worker = RoleChoice::new(ClientKind::Grok, "grok-4.5");
-        config.enable_verifier = true;
         config.roles.verifier = Some(RoleChoice::new(ClientKind::Codex, "o4-mini"));
         scaffold_with_config(root, &config).unwrap();
 
@@ -649,7 +617,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let root = dir.path();
         let mut config = ProjectConfig::defaults_for_repo(root);
-        config.enable_verifier = false;
         config.roles.verifier = None;
         scaffold_with_config(root, &config).unwrap();
         let specs = build_role_launch_specs(root, &config).unwrap();

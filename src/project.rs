@@ -38,19 +38,6 @@ impl ClientKind {
     }
 
     #[must_use]
-    pub const fn program(self) -> &'static str {
-        self.as_str()
-    }
-
-    pub fn parse(value: &str) -> anyhow::Result<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "codex" => Ok(Self::Codex),
-            "grok" => Ok(Self::Grok),
-            other => bail!("unknown client: {other} (expected codex or grok)"),
-        }
-    }
-
-    #[must_use]
     pub const fn all() -> [Self; 2] {
         [Self::Codex, Self::Grok]
     }
@@ -157,7 +144,6 @@ pub struct RolesConfig {
 pub struct ProjectConfig {
     pub schema_version: String,
     pub zellij_session: String,
-    pub enable_verifier: bool,
     pub roles: RolesConfig,
 }
 
@@ -168,7 +154,6 @@ impl ProjectConfig {
         Self {
             schema_version: "1".into(),
             zellij_session: session,
-            enable_verifier: true,
             roles: RolesConfig {
                 orchestrator: RoleChoice::new(
                     ClientKind::Codex,
@@ -191,10 +176,8 @@ impl ProjectConfig {
             ("planner", &self.roles.planner),
             ("worker", &self.roles.worker),
         ];
-        if self.enable_verifier {
-            if let Some(verifier) = &self.roles.verifier {
-                roles.push(("verifier", verifier));
-            }
+        if let Some(verifier) = &self.roles.verifier {
+            roles.push(("verifier", verifier));
         }
         roles
     }
@@ -226,11 +209,8 @@ pub fn scaffold(project_root: &Path) -> anyhow::Result<PathBuf> {
 
     let gitignore = root.join(".gitignore");
     if !gitignore.exists() {
-        fs::write(
-            &gitignore,
-            "logs/\nsessions/current.json\nboard/status.md\n",
-        )
-        .with_context(|| format!("write {}", gitignore.display()))?;
+        fs::write(&gitignore, "logs/\nsessions/\nboard/status.md\n")
+            .with_context(|| format!("write {}", gitignore.display()))?;
     }
 
     write_prompt_templates(&root)?;
@@ -289,9 +269,12 @@ pub fn default_session_name(project_root: &Path) -> String {
 }
 
 fn short_digest(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    let hash = Sha256::digest(bytes);
-    hex::encode(&hash[..4])
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+
+    let mut hasher = DefaultHasher::new();
+    hasher.write(bytes);
+    format!("{:08x}", hasher.finish() as u32)
 }
 
 fn write_prompt_templates(root: &Path) -> anyhow::Result<()> {
@@ -426,7 +409,7 @@ mod tests {
         let loaded = load_config(root).unwrap();
         assert_eq!(loaded.roles.worker.client, ClientKind::Grok);
         assert_eq!(loaded.roles.planner.client, ClientKind::Codex);
-        assert!(loaded.enable_verifier);
+        assert!(loaded.roles.verifier.is_some());
         assert!(!loaded.zellij_session.is_empty());
     }
 
@@ -437,7 +420,6 @@ mod tests {
         let mut config = ProjectConfig::defaults_for_repo(root);
         config.roles.orchestrator = RoleChoice::new(ClientKind::Grok, "grok-fast");
         config.roles.worker = RoleChoice::new(ClientKind::Codex, "o3");
-        config.enable_verifier = false;
         config.roles.verifier = None;
         scaffold_with_config(root, &config).unwrap();
 
@@ -446,8 +428,16 @@ mod tests {
         assert_eq!(loaded.roles.orchestrator.model, "grok-fast");
         assert_eq!(loaded.roles.worker.client, ClientKind::Codex);
         assert_eq!(loaded.roles.worker.model, "o3");
-        assert!(!loaded.enable_verifier);
         assert_eq!(loaded.active_roles().len(), 3);
+    }
+
+    #[test]
+    fn verifier_presence_is_the_only_enablement_state() {
+        let dir = tempdir().unwrap();
+        let config = ProjectConfig::defaults_for_repo(dir.path());
+
+        assert!(config.roles.verifier.is_some());
+        assert_eq!(config.active_roles().len(), 4);
     }
 
     #[test]

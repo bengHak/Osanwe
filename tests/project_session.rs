@@ -38,7 +38,6 @@ fn custom_role_clients_drive_launch_commands() {
     config.roles.orchestrator = RoleChoice::new(ClientKind::Grok, "grok-fast");
     config.roles.planner = RoleChoice::new(ClientKind::Codex, "o3");
     config.roles.worker = RoleChoice::new(ClientKind::Codex, "gpt-5.6-sol");
-    config.enable_verifier = true;
     config.roles.verifier = Some(RoleChoice::new(ClientKind::Grok, "grok-4.5"));
     scaffold_with_config(root, &config).unwrap();
 

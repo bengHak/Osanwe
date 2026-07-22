@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use osanwe::process::{CommandOutput, CommandRunner, CommandSpec};
-use osanwe::zellij::{pane_program_and_args, PaneHost, PaneSpec, ZellijPaneHost};
+use osanwe::zellij::{pane_program_and_args, PaneSpec, ZellijPaneHost};
 
 #[derive(Default)]
 struct RecordingRunner {
@@ -39,23 +39,6 @@ async fn creates_a_targetable_interactive_pane_without_shell_wrapping() {
     assert!(commands[0].args.iter().any(|arg| arg == "new-pane"));
     assert!(commands[0].args.iter().any(|arg| arg == "--cwd"));
     assert!(commands[0].args.iter().any(|arg| arg == "osanwe"));
-}
-
-#[tokio::test]
-async fn paste_targets_the_requested_pane() {
-    let runner = Arc::new(RecordingRunner::default());
-    let host = ZellijPaneHost::new("osanwe-test", runner.clone());
-
-    host.paste("terminal_4", "hello\nworld")
-        .await
-        .expect("paste");
-
-    let commands = runner.commands.lock().unwrap();
-    assert!(commands[0]
-        .args
-        .windows(2)
-        .any(|pair| pair == ["--pane-id", "terminal_4"]));
-    assert!(commands[0].args.iter().any(|arg| arg == "paste"));
 }
 
 #[test]

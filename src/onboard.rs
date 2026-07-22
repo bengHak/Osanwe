@@ -606,16 +606,15 @@ fn build_config(
         .iter()
         .find(|r| r.name == "verifier")
         .context("missing verifier draft")?;
-    let enable_verifier = verifier_draft.enabled;
+    let verifier_enabled = verifier_draft.enabled;
     Ok(ProjectConfig {
         schema_version: "1".into(),
         zellij_session: default_session_name(project_root),
-        enable_verifier,
         roles: RolesConfig {
             orchestrator: pick("orchestrator")?,
             planner: pick("planner")?,
             worker: pick("worker")?,
-            verifier: if enable_verifier {
+            verifier: if verifier_enabled {
                 Some(pick("verifier")?)
             } else {
                 None
@@ -762,7 +761,6 @@ mod tests {
         assert!(w.confirm_current());
         let dir = tempdir().unwrap();
         let config = w.build_config(dir.path()).unwrap();
-        assert!(!config.enable_verifier);
         assert!(config.roles.verifier.is_none());
         assert_eq!(config.roles.orchestrator.model, "gpt-5.6-sol");
         assert_eq!(config.roles.worker.model, "grok-4.5");
@@ -788,12 +786,11 @@ mod tests {
         let root = dir.path();
         let mut config = ProjectConfig::defaults_for_repo(root);
         config.roles.planner = RoleChoice::new(ClientKind::Grok, "grok-4.5");
-        config.enable_verifier = false;
         config.roles.verifier = None;
         apply_choices(root, &config).unwrap();
         let loaded = load_config(root).unwrap();
         assert_eq!(loaded.roles.planner.client, ClientKind::Grok);
         assert_eq!(loaded.roles.planner.model, "grok-4.5");
-        assert!(!loaded.enable_verifier);
+        assert!(loaded.roles.verifier.is_none());
     }
 }

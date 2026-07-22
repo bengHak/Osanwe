@@ -1,6 +1,7 @@
 //! Build native interactive launch specs and start Zellij multi-pane sessions.
 
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -20,7 +21,6 @@ pub struct RoleLaunchSpec {
     pub client: ClientKind,
     pub model: String,
     pub command: CommandSpec,
-    pub bootstrap: String,
     pub title: String,
 }
 
@@ -43,8 +43,8 @@ fn build_one_spec(
     role: &str,
     choice: &RoleChoice,
 ) -> anyhow::Result<RoleLaunchSpec> {
-    let command = interactive_command(project_root, osanwe, role, choice)?;
     let bootstrap = bootstrap_for_role(osanwe, role)?;
+    let command = interactive_command(project_root, osanwe, role, choice)?.arg(&bootstrap);
     let title = format!(
         "[{}] {} ({})",
         role_label(role),
@@ -60,7 +60,6 @@ fn build_one_spec(
         client: choice.client,
         model: choice.model.clone(),
         command,
-        bootstrap,
         title,
     })
 }
@@ -236,12 +235,6 @@ pub async fn launch_project_session(project_root: &Path, no_attach: bool) -> any
                 command: spec.command.clone(),
             })
             .await?;
-        // Give the provider a moment to start, then inject bootstrap via paste.
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        if !spec.bootstrap.is_empty() {
-            let _ = host.paste(pane_id.as_str(), &spec.bootstrap).await;
-            let _ = host.send_keys(pane_id.as_str(), &["Enter"]).await;
-        }
         created.push(pane_id);
     }
 
@@ -300,29 +293,34 @@ pub async fn attach_project_session(project_root: &Path) -> anyhow::Result<()> {
 pub async fn stop_project_session(project_root: &Path) -> anyhow::Result<()> {
     require_unix()?;
     let config = load_config(project_root)?;
-    let status = Command::new("zellij")
+    let output = Command::new("zellij")
         .args(["kill-session", &config.zellij_session])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .status()
+        .output()
         .await;
-    match status {
-        Ok(s) if s.success() => {
+    match output {
+        Ok(output) if output.status.success() => {
             println!("Stopped Zellij session {}", config.zellij_session);
             Ok(())
         }
-        Ok(s) => {
-            // Session may already be gone.
-            println!(
-                "zellij kill-session exited {:?}; session {} may already be stopped",
-                s.code(),
-                config.zellij_session
-            );
+        Ok(output) if missing_session_error(&String::from_utf8_lossy(&output.stderr)) => {
+            println!("Zellij session {} is already absent", config.zellij_session,);
             Ok(())
         }
+        Ok(output) => bail!(
+            "stop Zellij session {} failed with status {:?}: {}",
+            config.zellij_session,
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
         Err(error) => Err(error).context("run zellij kill-session"),
     }
+}
+
+fn missing_session_error(stderr: &str) -> bool {
+    stderr.to_ascii_lowercase().contains("not found")
 }
 
 fn write_session_record(
@@ -429,41 +427,44 @@ fn path_text(path: &Path) -> anyhow::Result<String> {
         .with_context(|| format!("path is not valid UTF-8: {}", path.display()))
 }
 
-/// Print board status (used in the board pane).
-pub fn run_board(project_root: &Path) -> anyhow::Result<()> {
+fn board_snapshot(project_root: &Path) -> anyhow::Result<String> {
     let status_path = osanwe_dir(project_root).join("board/status.md");
     let todos = osanwe_dir(project_root).join("todos");
-    println!("Osanwe board — project {}", project_root.display());
-    println!("File bus: {}", osanwe_dir(project_root).display());
-    println!("---");
+    let mut output = format!(
+        "Osanwe board — project {}\nFile bus: {}\n---\n",
+        project_root.display(),
+        osanwe_dir(project_root).display()
+    );
     if status_path.is_file() {
-        print!("{}", fs::read_to_string(&status_path)?);
+        output.push_str(&fs::read_to_string(&status_path)?);
     }
-    println!("---");
-    println!("Todos:");
+    output.push_str("---\nTodos:\n");
     if todos.is_dir() {
         let mut entries: Vec<_> = fs::read_dir(&todos)?
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.is_file())
-            .collect();
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<Result<_, _>>()?;
+        entries.retain(|path| path.is_file());
         entries.sort();
         if entries.is_empty() {
-            println!("  (none yet — add files under .osanwe/todos/)");
+            output.push_str("  (none yet — add files under .osanwe/todos/)\n");
         } else {
             for entry in entries {
-                println!(
-                    "  - {}",
+                output.push_str(&format!(
+                    "  - {}\n",
                     entry.file_name().unwrap_or_default().to_string_lossy()
-                );
+                ));
             }
         }
     }
-    println!();
-    println!("Press Ctrl-C to close this board pane.");
-    // Keep the pane open until the user closes it.
+    Ok(output)
+}
+
+/// Refresh board status until the pane is closed.
+pub fn run_board(project_root: &Path) -> anyhow::Result<()> {
     loop {
-        std::thread::sleep(std::time::Duration::from_secs(3600));
+        print!("\x1b[2J\x1b[H{}", board_snapshot(project_root)?);
+        io::stdout().flush()?;
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -502,6 +503,29 @@ mod tests {
             self.commands.lock().unwrap().push(spec.clone());
             Ok(self.outputs.lock().unwrap().pop_front().unwrap())
         }
+    }
+
+    #[test]
+    fn board_snapshot_reads_current_status_and_sorted_todos() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let osanwe = osanwe_dir(root);
+        fs::create_dir_all(osanwe.join("board")).unwrap();
+        fs::create_dir_all(osanwe.join("todos")).unwrap();
+        fs::write(osanwe.join("board/status.md"), "status body\n").unwrap();
+        fs::write(osanwe.join("todos/b.md"), "b").unwrap();
+        fs::write(osanwe.join("todos/a.md"), "a").unwrap();
+
+        let text = board_snapshot(root).unwrap();
+
+        assert!(text.contains("status body"));
+        assert!(text.find("a.md").unwrap() < text.find("b.md").unwrap());
+    }
+
+    #[test]
+    fn stop_ignores_only_a_missing_session() {
+        assert!(missing_session_error("Session not found"));
+        assert!(!missing_session_error("permission denied"));
     }
 
     #[tokio::test]
@@ -602,7 +626,7 @@ mod tests {
             orch.command.env.get("OSANWE_DIR").map(String::as_str),
             Some(osanwe_dir(root).to_str().unwrap())
         );
-        assert!(orch.bootstrap.contains(".osanwe"));
+        assert!(orch.command.args.iter().any(|arg| arg.contains(".osanwe")));
 
         let planner = specs.iter().find(|s| s.role == "planner").unwrap();
         assert_eq!(planner.command.program, "codex");

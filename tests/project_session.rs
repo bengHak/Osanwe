@@ -68,7 +68,11 @@ fn custom_role_clients_drive_launch_commands() {
     assert_eq!(pane_prog, "env");
     assert!(pane_args.iter().any(|a| a.starts_with("OSANWE_DIR=")));
     assert!(pane_args.iter().any(|a| a == "grok"));
-    assert!(orch.bootstrap.to_lowercase().contains("orchestrator"));
+    assert!(orch
+        .command
+        .args
+        .iter()
+        .any(|arg| arg.contains("Osanwe role: orchestrator")));
 
     let planner = by_role("planner");
     assert_eq!(planner.command.program, "codex");
@@ -181,12 +185,7 @@ fn onboard_defaults_requires_force_to_replace_existing_config() {
     scaffold_with_config(root, &config).unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_osanwe"))
-        .args([
-            "onboard",
-            "--defaults",
-            "--repo",
-            root.to_str().unwrap(),
-        ])
+        .args(["onboard", "--defaults", "--repo", root.to_str().unwrap()])
         .output()
         .unwrap();
 

@@ -405,6 +405,8 @@ mod tests {
             .join("prompts/orchestrator.md")
             .is_file());
         assert!(root.join(OSANWE_DIR).join("README.md").is_file());
+        let gitignore = fs::read_to_string(root.join(OSANWE_DIR).join(".gitignore")).unwrap();
+        assert!(gitignore.lines().any(|line| line == "sessions/"));
 
         let loaded = load_config(root).unwrap();
         assert_eq!(loaded.roles.worker.client, ClientKind::Grok);
